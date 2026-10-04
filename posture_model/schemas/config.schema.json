@@ -1,0 +1,156 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kltn.local/schemas/config.schema.json",
+  "title": "Cấu hình Desktop App (server -> app, app_config.json)",
+  "version": "1.0",
+  "type": "object",
+  "properties": {
+    "user_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "alert_sec": {
+      "type": "number",
+      "minimum": 1,
+      "maximum": 120
+    },
+    "clear_sec": {
+      "type": "number",
+      "minimum": 0.5,
+      "maximum": 60
+    },
+    "repeat_sec": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 3600
+    },
+    "cooldown_sec": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 3600
+    },
+    "p_bad_threshold": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0.05,
+      "maximum": 0.95
+    },
+    "p_bad_hysteresis": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 0.4
+    },
+    "shoulder_tilt_on": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0.5,
+      "maximum": 30
+    },
+    "shoulder_tilt_off": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0,
+      "maximum": 30
+    },
+    "distance_on_cm": {
+      "type": "number",
+      "minimum": 20,
+      "maximum": 120
+    },
+    "distance_off_cm": {
+      "type": "number",
+      "minimum": 20,
+      "maximum": 130
+    },
+    "calib_distance_cm": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 20,
+      "maximum": 150
+    },
+    "camera_focal_px": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 50,
+      "maximum": 5000
+    },
+    "camera_hfov_deg": {
+      "type": "number",
+      "minimum": 30,
+      "maximum": 120
+    },
+    "away_sec": {
+      "type": "number",
+      "minimum": 5,
+      "maximum": 600
+    },
+    "sit_limit_min": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 240
+    },
+    "sit_repeat_min": {
+      "type": "number",
+      "minimum": 1,
+      "maximum": 120
+    },
+    "eye_break_min": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 120
+    },
+    "notify_toast": {
+      "type": "boolean"
+    },
+    "notify_sound": {
+      "type": "boolean"
+    },
+    "notify_popup": {
+      "type": "boolean"
+    },
+    "calib_sec": {
+      "type": "number",
+      "minimum": 3,
+      "maximum": 60
+    },
+    "api_base_url": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "api_token": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "batch_interval_sec": {
+      "type": "number",
+      "minimum": 1,
+      "maximum": 300
+    },
+    "batch_max": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 500
+    },
+    "metrics_window_sec": {
+      "type": "integer",
+      "minimum": 10,
+      "maximum": 600
+    }
+  }
+}

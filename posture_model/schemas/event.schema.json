@@ -1,0 +1,438 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kltn.local/schemas/event.schema.json",
+  "title": "Posture event (Desktop App -> server)",
+  "version": "1.0",
+  "type": "object",
+  "required": [
+    "eventId",
+    "eventType",
+    "deviceId",
+    "sessionId",
+    "ts",
+    "appVersion"
+  ],
+  "properties": {
+    "eventId": {
+      "type": "string",
+      "format": "uuid",
+      "description": "khoá chống trùng (idempotency)"
+    },
+    "eventType": {
+      "enum": [
+        "SESSION_START",
+        "SESSION_END",
+        "CALIBRATED",
+        "ALERT_STARTED",
+        "ALERT_REPEATED",
+        "ALERT_RESOLVED",
+        "USER_AWAY",
+        "USER_BACK",
+        "REMINDER",
+        "CONFIG_APPLIED"
+      ]
+    },
+    "userId": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "deviceId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "sessionId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "ts": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "alertType": {
+      "enum": [
+        "NECK_TRUNK",
+        "SHOULDER_TILT",
+        "TOO_CLOSE",
+        "SIT_TOO_LONG",
+        "EYE_BREAK"
+      ]
+    },
+    "severity": {
+      "enum": [
+        "LOW",
+        "MEDIUM",
+        "HIGH"
+      ]
+    },
+    "level": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 3
+    },
+    "startedAt": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "endedAt": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "durationSec": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "reason": {
+      "enum": [
+        "CORRECTED",
+        "AWAY",
+        "RECALIBRATE",
+        "SESSION_END",
+        "RESET"
+      ]
+    },
+    "snapshot": {
+      "type": "object",
+      "properties": {
+        "pBad": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1
+        },
+        "neck": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "trunk": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "headPitch": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "rulaB": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "enum": [
+            0,
+            1,
+            null
+          ]
+        },
+        "tiltRel": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "distanceCm": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        }
+      }
+    },
+    "modelVersion": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "appVersion": {
+      "type": "string"
+    },
+    "config": {
+      "type": "object"
+    },
+    "awaySec": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "sittingMin": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "changedKeys": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "alertCount": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      }
+    },
+    "frontCam": {
+      "type": "boolean",
+      "description": "SESSION_START: có cam laptop (đo lệch vai + khoảng cách) không"
+    },
+    "side": {
+      "enum": [
+        "left",
+        "right"
+      ],
+      "description": "CALIBRATED: cam hông đang thấy phía nào của người"
+    },
+    "baseline": {
+      "type": "object",
+      "required": [
+        "neck",
+        "trunk",
+        "headPitch"
+      ],
+      "description": "CALIBRATED: góc lúc ngồi chuẩn (độ); các góc trong snapshot là so với mốc này",
+      "properties": {
+        "neck": {
+          "type": "number"
+        },
+        "trunk": {
+          "type": "number"
+        },
+        "headPitch": {
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      }
+    },
+    "shoulderTiltBase": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "description": "CALIBRATED: độ lệch vai lúc ngồi chuẩn (độ), null nếu không có cam laptop"
+    },
+    "distanceCm": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0,
+      "description": "CALIBRATED: khoảng cách mắt–màn hình lúc ngồi chuẩn (cm)"
+    },
+    "distanceMethod": {
+      "enum": [
+        "iris",
+        "ipd",
+        null
+      ],
+      "description": "cách đo khoảng cách: mống mắt / khoảng cách 2 mắt / không đo"
+    },
+    "focalPx": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0,
+      "description": "CALIBRATED: tiêu cự camera laptop (px) nếu đã hiệu chỉnh"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "eventType": {
+            "const": "ALERT_STARTED"
+          }
+        },
+        "required": [
+          "eventType"
+        ]
+      },
+      "then": {
+        "required": [
+          "alertType",
+          "severity",
+          "startedAt"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "eventType": {
+            "const": "ALERT_REPEATED"
+          }
+        },
+        "required": [
+          "eventType"
+        ]
+      },
+      "then": {
+        "required": [
+          "alertType",
+          "severity",
+          "startedAt",
+          "durationSec"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "eventType": {
+            "const": "ALERT_RESOLVED"
+          }
+        },
+        "required": [
+          "eventType"
+        ]
+      },
+      "then": {
+        "required": [
+          "alertType",
+          "startedAt",
+          "endedAt",
+          "durationSec",
+          "reason"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "eventType": {
+            "const": "REMINDER"
+          }
+        },
+        "required": [
+          "eventType"
+        ]
+      },
+      "then": {
+        "required": [
+          "alertType",
+          "severity"
+        ],
+        "properties": {
+          "alertType": {
+            "enum": [
+              "SIT_TOO_LONG",
+              "EYE_BREAK"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "eventType": {
+            "const": "USER_BACK"
+          }
+        },
+        "required": [
+          "eventType"
+        ]
+      },
+      "then": {
+        "required": [
+          "awaySec"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "eventType": {
+            "const": "CONFIG_APPLIED"
+          }
+        },
+        "required": [
+          "eventType"
+        ]
+      },
+      "then": {
+        "required": [
+          "changedKeys"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "eventType": {
+            "const": "SESSION_END"
+          }
+        },
+        "required": [
+          "eventType"
+        ]
+      },
+      "then": {
+        "required": [
+          "durationSec"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "eventType": {
+            "const": "CALIBRATED"
+          }
+        },
+        "required": [
+          "eventType"
+        ]
+      },
+      "then": {
+        "required": [
+          "side",
+          "baseline"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "eventType": {
+            "const": "SESSION_START"
+          }
+        },
+        "required": [
+          "eventType"
+        ]
+      },
+      "then": {
+        "required": [
+          "frontCam"
+        ]
+      }
+    }
+  ]
+}

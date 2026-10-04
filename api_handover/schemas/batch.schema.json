@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kltn.local/schemas/batch.schema.json",
+  "title": "POST /api/v1/telemetry/batch",
+  "version": "1.0",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "deviceId",
+    "sentAt",
+    "events",
+    "metrics"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "1.0"
+    },
+    "deviceId": {
+      "type": "string"
+    },
+    "sentAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "events": {
+      "type": "array",
+      "maxItems": 500,
+      "items": {
+        "$ref": "event.schema.json"
+      }
+    },
+    "metrics": {
+      "type": "array",
+      "maxItems": 500,
+      "items": {
+        "$ref": "metrics.schema.json"
+      }
+    }
+  }
+}

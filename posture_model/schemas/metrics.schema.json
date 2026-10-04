@@ -1,0 +1,170 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kltn.local/schemas/metrics.schema.json",
+  "title": "Posture metrics, 1 bản / cửa sổ 60 giây",
+  "version": "1.0",
+  "type": "object",
+  "required": [
+    "metricId",
+    "deviceId",
+    "sessionId",
+    "windowStart",
+    "windowSec",
+    "coveredSec",
+    "samples",
+    "presenceSec",
+    "postureScore"
+  ],
+  "properties": {
+    "metricId": {
+      "type": "string",
+      "format": "uuid",
+      "description": "uuid5(sessionId + windowStart): gửi lại vẫn trùng id"
+    },
+    "userId": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "deviceId": {
+      "type": "string"
+    },
+    "sessionId": {
+      "type": "string"
+    },
+    "windowStart": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "windowSec": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "coveredSec": {
+      "type": "number",
+      "minimum": 0
+    },
+    "samples": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "presenceSec": {
+      "type": "number",
+      "minimum": 0
+    },
+    "goodRatio": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0,
+      "maximum": 1
+    },
+    "pBadMean": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0,
+      "maximum": 1
+    },
+    "neckMean": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "neckMax": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "trunkMean": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "trunkMax": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "headPitchMean": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "tiltRelMean": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "tiltAbsMax": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "shoulderBadRatio": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0,
+      "maximum": 1
+    },
+    "distanceMeanCm": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "distanceMinCm": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "tooCloseRatio": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0,
+      "maximum": 1
+    },
+    "alertCount": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      }
+    },
+    "postureScore": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0,
+      "maximum": 100
+    },
+    "modelVersion": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "appVersion": {
+      "type": "string"
+    }
+  }
+}

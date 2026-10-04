@@ -1,0 +1,919 @@
+# SINH TỰ ĐỘNG từ schemas/*.json bằng tools/build_openapi.py – đừng sửa tay
+openapi: 3.1.0
+info:
+  title: Posture Monitor – API giữa Desktop App và Backend
+  version: 1.0.0
+  description: 'Hợp đồng API v1.0 giữa Desktop App (edge) và backend microservice.
+
+
+    - Thời gian: ISO-8601 UTC (`...Z`). Body: JSON UTF-8.
+
+    - Chống trùng: cùng `eventId` / `metricId` chỉ lưu 1 lần nhưng VẪN trả trong `accepted`.
+
+    - Kiểm tra từng mục: mục sai schema vào `rejected`, các mục khác vẫn nhận.
+
+    - `userId` lấy từ JWT (`sub`), không tin trường `userId` trong payload.
+
+    - Trả lời trong 5 giây (app hết chờ sau 5 giây).
+
+
+    WebSocket (không mô tả được bằng OpenAPI): STOMP tại `/ws`, gửi JWT trong header `Authorization` của frame CONNECT;
+    app subscribe `/user/queue/config` và nhận JSON theo schema `Config` mỗi khi cấu hình đổi; Dashboard subscribe
+    `/topic/user/{userId}/status`.'
+servers:
+- url: http://127.0.0.1:8080
+  description: mock_server.py / máy dev
+tags:
+- name: telemetry
+- name: auth
+- name: config
+- name: system
+paths:
+  /api/v1/health:
+    get:
+      tags:
+      - system
+      summary: Kiểm tra server sống
+      security: []
+      description: App gọi mỗi 15 giây khi đang mất kết nối để biết lúc nào gửi bù.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - status
+                properties:
+                  status:
+                    const: UP
+  /api/v1/auth/login:
+    post:
+      tags:
+      - auth
+      summary: Đăng nhập trên Desktop App
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Đăng nhập thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '401':
+          description: Sai email hoặc mật khẩu
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/v1/auth/refresh:
+    post:
+      tags:
+      - auth
+      summary: Lấy access token mới (app chạy cả ngày)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - refreshToken
+              properties:
+                refreshToken:
+                  type: string
+      responses:
+        '200':
+          description: Token mới
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenPair'
+        '401':
+          description: Refresh token sai hoặc hết hạn
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/v1/telemetry/batch:
+    post:
+      tags:
+      - telemetry
+      summary: Nhận một lô sự kiện + metrics từ Desktop App
+      description: App gửi mỗi 5 giây (sự kiện khẩn gửi ngay), tối đa 100 mục / lô. Backend kiểm tra schema rồi
+        đẩy vào Kafka, không xử lý nặng trong request.
+      parameters:
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Batch'
+            example:
+              schemaVersion: '1.0'
+              deviceId: dev_e5e61fb5d685
+              sentAt: '2026-10-03T16:11:40.120Z'
+              events:
+              - eventId: c287daa7-782b-4824-8bc0-bfbdb83c2d34
+                eventType: ALERT_RESOLVED
+                userId: null
+                deviceId: dev_e5e61fb5d685
+                sessionId: s_6d0be9bf308a
+                ts: '2026-10-03T16:11:38.617Z'
+                alertType: NECK_TRUNK
+                severity: LOW
+                level: 1
+                startedAt: '2026-10-03T16:11:05.283Z'
+                endedAt: '2026-10-03T16:11:35.614Z'
+                durationSec: 30.3
+                reason: CORRECTED
+                snapshot:
+                  pBad: 0.0
+                  neck: 8.88
+                  trunk: -2.59
+                  headPitch: 4.94
+                  rulaB: 0
+                  tiltRel: null
+                  distanceCm: null
+                modelVersion: v3
+                appVersion: 1.0.0
+                config:
+                  alertSec: 5
+                  clearSec: 3
+                  repeatSec: 240
+              metrics:
+              - metricId: 162a41cd-b6e4-588b-bf0d-23c7314276e5
+                userId: null
+                deviceId: dev_e5e61fb5d685
+                sessionId: s_6d0be9bf308a
+                windowStart: '2026-10-03T16:11:00Z'
+                windowSec: 60
+                coveredSec: 60.0
+                samples: 599
+                presenceSec: 60.0
+                goodRatio: 0.327
+                pBadMean: 0.59
+                neckMean: 22.5
+                neckMax: 35.09
+                trunkMean: 3.35
+                trunkMax: 16.39
+                headPitchMean: 12.27
+                tiltRelMean: null
+                tiltAbsMax: null
+                shoulderBadRatio: null
+                distanceMeanCm: null
+                distanceMinCm: null
+                tooCloseRatio: null
+                alertCount:
+                  NECK_TRUNK: 2
+                postureScore: 23
+                modelVersion: v3
+                appVersion: 1.0.0
+      responses:
+        '200':
+          description: Đã nhận lô (kể cả khi có mục bị từ chối)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BatchResult'
+        '400':
+          description: Body sai cấu trúc chung (không phải JSON, thiếu deviceId...) – app sẽ thử lại
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Thiếu / sai / hết hạn JWT – app giữ dữ liệu, chờ đăng nhập lại
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '413':
+          description: Lô quá 500 sự kiện hoặc 500 metrics – app tự chia nhỏ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Quá giới hạn tần suất – app thử lại với backoff
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Server quá tải / bảo trì – app thử lại với backoff
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/v1/config/me:
+    get:
+      tags:
+      - config
+      summary: Cấu hình của người dùng hiện tại
+      description: Chỉ trả các khoá khác mặc định; app gộp với mặc định của nó.
+      responses:
+        '200':
+          description: Cấu hình
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Config'
+        '401':
+          description: Chưa đăng nhập
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    put:
+      tags:
+      - config
+      summary: Lưu cấu hình (từ Web Dashboard)
+      description: Lưu xong backend đẩy cấu hình qua WebSocket `/user/queue/config` (qua topic Kafka `config.updates`).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Config'
+      responses:
+        '200':
+          description: Đã lưu
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Config'
+        '400':
+          description: Giá trị không hợp lệ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Chưa đăng nhập
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    Event:
+      title: Posture event (Desktop App -> server)
+      type: object
+      required:
+      - eventId
+      - eventType
+      - deviceId
+      - sessionId
+      - ts
+      - appVersion
+      properties:
+        eventId:
+          type: string
+          format: uuid
+          description: khoá chống trùng (idempotency)
+        eventType:
+          enum:
+          - SESSION_START
+          - SESSION_END
+          - CALIBRATED
+          - ALERT_STARTED
+          - ALERT_REPEATED
+          - ALERT_RESOLVED
+          - USER_AWAY
+          - USER_BACK
+          - REMINDER
+          - CONFIG_APPLIED
+        userId:
+          type:
+          - string
+          - 'null'
+        deviceId:
+          type: string
+          minLength: 1
+        sessionId:
+          type: string
+          minLength: 1
+        ts:
+          type: string
+          format: date-time
+        alertType:
+          enum:
+          - NECK_TRUNK
+          - SHOULDER_TILT
+          - TOO_CLOSE
+          - SIT_TOO_LONG
+          - EYE_BREAK
+        severity:
+          enum:
+          - LOW
+          - MEDIUM
+          - HIGH
+        level:
+          type: integer
+          minimum: 1
+          maximum: 3
+        startedAt:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        endedAt:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        durationSec:
+          type:
+          - number
+          - 'null'
+          minimum: 0
+        reason:
+          enum:
+          - CORRECTED
+          - AWAY
+          - RECALIBRATE
+          - SESSION_END
+          - RESET
+        snapshot:
+          type: object
+          properties:
+            pBad:
+              type:
+              - number
+              - 'null'
+              minimum: 0
+              maximum: 1
+            neck:
+              type:
+              - number
+              - 'null'
+            trunk:
+              type:
+              - number
+              - 'null'
+            headPitch:
+              type:
+              - number
+              - 'null'
+            rulaB:
+              type:
+              - integer
+              - 'null'
+              enum:
+              - 0
+              - 1
+              - null
+            tiltRel:
+              type:
+              - number
+              - 'null'
+            distanceCm:
+              type:
+              - number
+              - 'null'
+              minimum: 0
+        modelVersion:
+          type:
+          - string
+          - 'null'
+        appVersion:
+          type: string
+        config:
+          type: object
+        awaySec:
+          type:
+          - number
+          - 'null'
+          minimum: 0
+        sittingMin:
+          type:
+          - number
+          - 'null'
+          minimum: 0
+        changedKeys:
+          type: array
+          items:
+            type: string
+        alertCount:
+          type: object
+          additionalProperties:
+            type: integer
+            minimum: 0
+        frontCam:
+          type: boolean
+          description: 'SESSION_START: có cam laptop (đo lệch vai + khoảng cách) không'
+        side:
+          enum:
+          - left
+          - right
+          description: 'CALIBRATED: cam hông đang thấy phía nào của người'
+        baseline:
+          type: object
+          required:
+          - neck
+          - trunk
+          - headPitch
+          description: 'CALIBRATED: góc lúc ngồi chuẩn (độ); các góc trong snapshot là so với mốc này'
+          properties:
+            neck:
+              type: number
+            trunk:
+              type: number
+            headPitch:
+              type:
+              - number
+              - 'null'
+        shoulderTiltBase:
+          type:
+          - number
+          - 'null'
+          description: 'CALIBRATED: độ lệch vai lúc ngồi chuẩn (độ), null nếu không có cam laptop'
+        distanceCm:
+          type:
+          - number
+          - 'null'
+          minimum: 0
+          description: 'CALIBRATED: khoảng cách mắt–màn hình lúc ngồi chuẩn (cm)'
+        distanceMethod:
+          enum:
+          - iris
+          - ipd
+          - null
+          description: 'cách đo khoảng cách: mống mắt / khoảng cách 2 mắt / không đo'
+        focalPx:
+          type:
+          - number
+          - 'null'
+          minimum: 0
+          description: 'CALIBRATED: tiêu cự camera laptop (px) nếu đã hiệu chỉnh'
+      allOf:
+      - if:
+          properties:
+            eventType:
+              const: ALERT_STARTED
+          required:
+          - eventType
+        then:
+          required:
+          - alertType
+          - severity
+          - startedAt
+      - if:
+          properties:
+            eventType:
+              const: ALERT_REPEATED
+          required:
+          - eventType
+        then:
+          required:
+          - alertType
+          - severity
+          - startedAt
+          - durationSec
+      - if:
+          properties:
+            eventType:
+              const: ALERT_RESOLVED
+          required:
+          - eventType
+        then:
+          required:
+          - alertType
+          - startedAt
+          - endedAt
+          - durationSec
+          - reason
+      - if:
+          properties:
+            eventType:
+              const: REMINDER
+          required:
+          - eventType
+        then:
+          required:
+          - alertType
+          - severity
+          properties:
+            alertType:
+              enum:
+              - SIT_TOO_LONG
+              - EYE_BREAK
+      - if:
+          properties:
+            eventType:
+              const: USER_BACK
+          required:
+          - eventType
+        then:
+          required:
+          - awaySec
+      - if:
+          properties:
+            eventType:
+              const: CONFIG_APPLIED
+          required:
+          - eventType
+        then:
+          required:
+          - changedKeys
+      - if:
+          properties:
+            eventType:
+              const: SESSION_END
+          required:
+          - eventType
+        then:
+          required:
+          - durationSec
+      - if:
+          properties:
+            eventType:
+              const: CALIBRATED
+          required:
+          - eventType
+        then:
+          required:
+          - side
+          - baseline
+      - if:
+          properties:
+            eventType:
+              const: SESSION_START
+          required:
+          - eventType
+        then:
+          required:
+          - frontCam
+    Metrics:
+      title: Posture metrics, 1 bản / cửa sổ 60 giây
+      type: object
+      required:
+      - metricId
+      - deviceId
+      - sessionId
+      - windowStart
+      - windowSec
+      - coveredSec
+      - samples
+      - presenceSec
+      - postureScore
+      properties:
+        metricId:
+          type: string
+          format: uuid
+          description: 'uuid5(sessionId + windowStart): gửi lại vẫn trùng id'
+        userId:
+          type:
+          - string
+          - 'null'
+        deviceId:
+          type: string
+        sessionId:
+          type: string
+        windowStart:
+          type: string
+          format: date-time
+        windowSec:
+          type: integer
+          minimum: 1
+        coveredSec:
+          type: number
+          minimum: 0
+        samples:
+          type: integer
+          minimum: 0
+        presenceSec:
+          type: number
+          minimum: 0
+        goodRatio:
+          type:
+          - number
+          - 'null'
+          minimum: 0
+          maximum: 1
+        pBadMean:
+          type:
+          - number
+          - 'null'
+          minimum: 0
+          maximum: 1
+        neckMean:
+          type:
+          - number
+          - 'null'
+        neckMax:
+          type:
+          - number
+          - 'null'
+        trunkMean:
+          type:
+          - number
+          - 'null'
+        trunkMax:
+          type:
+          - number
+          - 'null'
+        headPitchMean:
+          type:
+          - number
+          - 'null'
+        tiltRelMean:
+          type:
+          - number
+          - 'null'
+        tiltAbsMax:
+          type:
+          - number
+          - 'null'
+          minimum: 0
+        shoulderBadRatio:
+          type:
+          - number
+          - 'null'
+          minimum: 0
+          maximum: 1
+        distanceMeanCm:
+          type:
+          - number
+          - 'null'
+          minimum: 0
+        distanceMinCm:
+          type:
+          - number
+          - 'null'
+          minimum: 0
+        tooCloseRatio:
+          type:
+          - number
+          - 'null'
+          minimum: 0
+          maximum: 1
+        alertCount:
+          type: object
+          additionalProperties:
+            type: integer
+            minimum: 0
+        postureScore:
+          type:
+          - integer
+          - 'null'
+          minimum: 0
+          maximum: 100
+        modelVersion:
+          type:
+          - string
+          - 'null'
+        appVersion:
+          type: string
+    Batch:
+      title: POST /api/v1/telemetry/batch
+      type: object
+      required:
+      - schemaVersion
+      - deviceId
+      - sentAt
+      - events
+      - metrics
+      properties:
+        schemaVersion:
+          const: '1.0'
+        deviceId:
+          type: string
+        sentAt:
+          type: string
+          format: date-time
+        events:
+          type: array
+          maxItems: 500
+          items:
+            $ref: '#/components/schemas/Event'
+        metrics:
+          type: array
+          maxItems: 500
+          items:
+            $ref: '#/components/schemas/Metrics'
+    Config:
+      title: Cấu hình Desktop App (server -> app, app_config.json)
+      type: object
+      properties:
+        user_id:
+          type:
+          - string
+          - 'null'
+        alert_sec:
+          type: number
+          minimum: 1
+          maximum: 120
+        clear_sec:
+          type: number
+          minimum: 0.5
+          maximum: 60
+        repeat_sec:
+          type: number
+          minimum: 0
+          maximum: 3600
+        cooldown_sec:
+          type: number
+          minimum: 0
+          maximum: 3600
+        p_bad_threshold:
+          type:
+          - number
+          - 'null'
+          minimum: 0.05
+          maximum: 0.95
+        p_bad_hysteresis:
+          type: number
+          minimum: 0
+          maximum: 0.4
+        shoulder_tilt_on:
+          type:
+          - number
+          - 'null'
+          minimum: 0.5
+          maximum: 30
+        shoulder_tilt_off:
+          type:
+          - number
+          - 'null'
+          minimum: 0
+          maximum: 30
+        distance_on_cm:
+          type: number
+          minimum: 20
+          maximum: 120
+        distance_off_cm:
+          type: number
+          minimum: 20
+          maximum: 130
+        calib_distance_cm:
+          type:
+          - number
+          - 'null'
+          minimum: 20
+          maximum: 150
+        camera_focal_px:
+          type:
+          - number
+          - 'null'
+          minimum: 50
+          maximum: 5000
+        camera_hfov_deg:
+          type: number
+          minimum: 30
+          maximum: 120
+        away_sec:
+          type: number
+          minimum: 5
+          maximum: 600
+        sit_limit_min:
+          type: number
+          minimum: 0
+          maximum: 240
+        sit_repeat_min:
+          type: number
+          minimum: 1
+          maximum: 120
+        eye_break_min:
+          type: number
+          minimum: 0
+          maximum: 120
+        notify_toast:
+          type: boolean
+        notify_sound:
+          type: boolean
+        notify_popup:
+          type: boolean
+        calib_sec:
+          type: number
+          minimum: 3
+          maximum: 60
+        api_base_url:
+          type:
+          - string
+          - 'null'
+        api_token:
+          type:
+          - string
+          - 'null'
+        batch_interval_sec:
+          type: number
+          minimum: 1
+          maximum: 300
+        batch_max:
+          type: integer
+          minimum: 1
+          maximum: 500
+        metrics_window_sec:
+          type: integer
+          minimum: 10
+          maximum: 600
+    BatchResult:
+      type: object
+      required:
+      - accepted
+      - rejected
+      properties:
+        accepted:
+          type: array
+          items:
+            type: string
+          description: id đã lưu, kể cả id trùng đã lưu trước đó
+        rejected:
+          type: array
+          items:
+            type: object
+            required:
+            - id
+            - reason
+            properties:
+              id:
+                type:
+                - string
+                - 'null'
+              reason:
+                type: string
+          description: id sai schema – app KHÔNG gửi lại
+        duplicates:
+          type: integer
+          minimum: 0
+    LoginRequest:
+      type: object
+      required:
+      - email
+      - password
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+        deviceId:
+          type: string
+        deviceName:
+          type: string
+    TokenPair:
+      type: object
+      required:
+      - accessToken
+      - refreshToken
+      - expiresIn
+      properties:
+        accessToken:
+          type: string
+        refreshToken:
+          type: string
+        expiresIn:
+          type: integer
+          description: giây
+    LoginResponse:
+      allOf:
+      - $ref: '#/components/schemas/TokenPair'
+      - type: object
+        required:
+        - user
+        properties:
+          user:
+            type: object
+            required:
+            - id
+            - role
+            properties:
+              id:
+                type: string
+              name:
+                type: string
+              orgId:
+                type:
+                - string
+                - 'null'
+              role:
+                enum:
+                - USER
+                - ORG_ADMIN
+                - SYS_ADMIN
+    Error:
+      type: object
+      properties:
+        error: {}
+security:
+- bearerAuth: []
