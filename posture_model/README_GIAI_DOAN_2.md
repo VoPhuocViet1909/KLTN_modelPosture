@@ -20,7 +20,9 @@ vòng lặp camera ──(không chờ)──► hàng đợi ──► thread S
 | `outbox.py` | Outbox SQLite: ghi đĩa trước, gửi sau; chống trùng theo id; backoff 2, 4, 8 … 300 s |
 | `sender.py` | Thread Sender: lô 5 s / 100 mục, sự kiện khẩn gửi ngay, tự gửi bù khi có mạng lại |
 | `metrics.py` | Gộp metrics 60 s (chạy trong app, hoặc chạy riêng trên `log.csv`) |
+| `quality.py` | Lọc giá trị phi lý: góc ngoài ±90°, khoảng cách ngoài 20–150 cm, cửa sổ metrics < 5 s không cảnh báo |
 | `mock_server.py` | Server giả đúng API để thử khi chưa có backend Spring |
+| `tests/test_quality.py` | 3 test lọc giá trị phi lý |
 | `tests/test_phase2.py` | 7 test: schema, outbox, gửi / mất mạng / có mạng lại, sai token, metrics |
 
 Backend Spring ở giai đoạn 3 dùng lại chính các file trong `schemas/`, nên app và server luôn khớp nhau.

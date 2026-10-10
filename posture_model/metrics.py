@@ -6,6 +6,9 @@ Chạy riêng trên file log.csv có sẵn (để làm dataset / báo cáo):
 
   python metrics.py out/log.csv --start 2026-10-03T14:00:00+07:00 --out out/metrics_from_log.csv
 
+Góc ngoài ±90°, khoảng cách ngoài 20–150 cm bị bỏ (quality.py); cửa sổ phủ < 5 giây
+và không có cảnh báo thì không gửi.
+
 Mọi tỉ lệ tính theo THỜI GIAN (mỗi mẫu nặng bằng khoảng cách tới mẫu trước, tối đa 1 giây), chỉ tính lúc có người.
 
 postureScore (0..100), tính khi có người >= 10% cửa sổ:
@@ -22,6 +25,8 @@ import math
 import time
 import uuid
 from datetime import datetime, timezone
+
+from quality import MIN_WINDOW_SEC, angle_ok, dist_ok
 
 BAD_STATES = ("BAD", "CANH BAO")
 KNOWN_STATES = ("GOOD", "BAD", "CANH BAO")
@@ -88,11 +93,11 @@ class MetricsAggregator:
         if ang:
             for k, key in (("neck", "neck"), ("trunk", "trunk"), ("head", "head_pitch")):
                 x = ang.get(key)
-                if x is not None and math.isfinite(x):
+                if angle_ok(x):                       # góc phi lý (bắt sai điểm khớp) không vào thống kê
                     w.v[k].append(x)
         if tilt_rel is not None and math.isfinite(tilt_rel):
             w.v["tilt"].append(tilt_rel)
-        if dist_cm is not None and math.isfinite(dist_cm):
+        if dist_ok(dist_cm):                          # ngoài 20–150 cm = đo sai
             w.v["dist"].append(dist_cm)
 
     def on_event(self, ev):
@@ -106,6 +111,8 @@ class MetricsAggregator:
         if w is None or w.samples == 0:
             return None
         self.cur = None
+        if w.covered < MIN_WINDOW_SEC and not w.alerts:   # vài mẫu lẻ -> số liệu nhiễu, không gửi
+            return None
         ratio = lambda num, den: round(num / den, 3) if den > 0 else None
         good = ratio(w.t["neck_good"], w.t["neck_known"])
         sh_bad = ratio(w.t["sh_bad"], w.t["sh_known"])

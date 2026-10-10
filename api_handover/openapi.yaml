@@ -2,8 +2,8 @@
 openapi: 3.1.0
 info:
   title: Posture Monitor – API giữa Desktop App và Backend
-  version: 1.0.0
-  description: 'Hợp đồng API v1.0 giữa Desktop App (edge) và backend microservice.
+  version: 1.1.0
+  description: 'Hợp đồng API v1.1 giữa Desktop App (edge) và backend microservice.
 
 
     - Thời gian: ISO-8601 UTC (`...Z`). Body: JSON UTF-8.
@@ -17,9 +17,12 @@ info:
     - Trả lời trong 5 giây (app hết chờ sau 5 giây).
 
 
-    WebSocket (không mô tả được bằng OpenAPI): STOMP tại `/ws`, gửi JWT trong header `Authorization` của frame CONNECT;
-    app subscribe `/user/queue/config` và nhận JSON theo schema `Config` mỗi khi cấu hình đổi; Dashboard subscribe
-    `/topic/user/{userId}/status`.'
+    Realtime (không mô tả được bằng OpenAPI): Socket.IO v4 tại `/socket.io/` qua Gateway (polling và WebSocket).
+    Client gửi JWT trong `auth: {token}` lúc kết nối; sai / hết hạn token thì server từ chối (`connect_error` với
+    message `unauthorized`), client lấy token mới rồi kết nối lại. Client không tự join room: server tự đưa socket
+    vào room `user:{sub}` (và `org:{orgId}` nếu là MANAGER). Server phát 2 sự kiện: `config` (JSON theo schema `Config`,
+    mỗi khi cấu hình đổi – app nhận) và `status` (`{userId, deviceId, state: GOOD|BAD|AWAY|OFFLINE, alertType, ts}`
+    – Dashboard nhận).'
 servers:
 - url: http://127.0.0.1:8080
   description: mock_server.py / máy dev
@@ -242,7 +245,7 @@ paths:
       tags:
       - config
       summary: Lưu cấu hình (từ Web Dashboard)
-      description: Lưu xong backend đẩy cấu hình qua WebSocket `/user/queue/config` (qua topic Kafka `config.updates`).
+      description: Lưu xong backend đẩy sự kiện Socket.IO `config` tới room `user:{sub}` (qua topic Kafka `config.updates`).
       requestBody:
         required: true
         content:

@@ -29,6 +29,7 @@ from alerts import AlertTracker, EventLog, PresenceTracker, Reminders
 from app_config import AppConfig
 from distance import EyeDistance
 from metrics import MetricsAggregator
+from quality import ANGLE_KEYS, angles_ok, dist_ok
 from notifier import Notifier, ascii_vi
 from outbox import Outbox
 from sender import Sender
@@ -365,8 +366,12 @@ def main():
             if not pres.away:
                 # ---- nhánh 1: cổ / thân
                 if sample_s:
+                    c = None
                     if Ls is not None:
                         c = apply_calibration(sequence_angles(Ls[None], side, f), base)
+                        if not angles_ok({k: float(c[0, FEATURES.index(k)]) for k in ANGLE_KEYS}):
+                            c = None                      # góc phi lý = bắt sai điểm khớp -> coi như không thấy
+                    if c is not None:
                         ang = {k: float(c[0, i]) for i, k in enumerate(FEATURES)}
                         rula_lab, _ = rula_frame_label(c[0])
                         buf.append(to_model_input(c)[0])
@@ -399,14 +404,15 @@ def main():
                 # ---- nhánh 3: khoảng cách mắt – màn hình
                 if sample_f and ed is not None:
                     cm = ed.to_cm(dpx, dkind, ff.shape[1])
-                    if np.isfinite(cm):
+                    cm_ok = dist_ok(float(cm))            # ngoài 20–150 cm = đo sai, bỏ mẫu
+                    if cm_ok:
                         d_hist.append(cm)
                     if d_hist:
                         d_med = float(np.median(d_hist))
                         on, off = cfg["distance_on_cm"], cfg["distance_off_cm"]
                         bad = True if d_med < on else False if d_med > off else None
                         snap["distanceCm"] = round(d_med, 1)
-                        emit(tr_dist.update(bad if np.isfinite(cm) else None, now))
+                        emit(tr_dist.update(bad if cm_ok else None, now))
 
                 # ---- nhắc nghỉ
                 emit(rem.update(now))

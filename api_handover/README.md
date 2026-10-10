@@ -98,5 +98,22 @@ Hợp đồng do phía Desktop App giữ. Muốn đổi / thêm trường: sửa
 `python tools/build_openapi.py` → chạy lại `contract_test.py` vào mock → báo bên kia. Thay đổi làm hỏng
 tương thích (đổi tên, xoá trường, thêm trường bắt buộc) thì tăng `schemaVersion`.
 
-WebSocket `/ws` (STOMP) chưa có trong mock: app subscribe `/user/queue/config`, gửi JWT trong header
-`Authorization` của frame CONNECT, nhận JSON theo `config.schema.json`.
+## Realtime: Socket.IO (từ v1.1, thay STOMP `/ws`)
+
+Chưa có trong mock.
+
+| Mục | Quy ước |
+| --- | --- |
+| Địa chỉ | `http://<gateway>/socket.io/`, Socket.IO v4 (Engine.IO 4), polling và WebSocket |
+| Xác thực | JWT trong `auth: {token}` lúc kết nối. Sai / hết hạn → `connect_error`, message `unauthorized`; client refresh token rồi kết nối lại |
+| Room | Server tự join: `user:{sub}`; MANAGER thêm `org:{orgId}`. Client không gửi lệnh join |
+| Sự kiện `config` | Server → app, JSON theo `config.schema.json`, mỗi khi Dashboard lưu cấu hình (nguồn: Kafka `config.updates`) |
+| Sự kiện `status` | Server → Dashboard, `{userId, deviceId, state: GOOD \| BAD \| AWAY \| OFFLINE, alertType, ts}` |
+
+Client Python (app): `python-socketio`, `sio.connect(base, auth={"token": jwt}, socketio_path="socket.io")`.
+Client React: `io(base, { auth: { token } })`.
+
+Phía backend dùng netty-socketio 2.0.14: cần kiểm tra server đọc được `auth` của gói CONNECT
+(`HandshakeData.getAuthToken()`); nếu không được thì chốt lại cách gửi token trước khi làm client.
+
+v1.0 → v1.1: chỉ đổi phần realtime (STOMP `/ws` → Socket.IO). REST và `schemas/*.json` giữ nguyên.

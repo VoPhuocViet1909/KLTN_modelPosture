@@ -60,17 +60,20 @@ def main():
         "openapi": "3.1.0",
         "info": {
             "title": "Posture Monitor – API giữa Desktop App và Backend",
-            "version": "1.0.0",
+            "version": "1.1.0",
             "description": (
-                "Hợp đồng API v1.0 giữa Desktop App (edge) và backend microservice.\n\n"
+                "Hợp đồng API v1.1 giữa Desktop App (edge) và backend microservice.\n\n"
                 "- Thời gian: ISO-8601 UTC (`...Z`). Body: JSON UTF-8.\n"
                 "- Chống trùng: cùng `eventId` / `metricId` chỉ lưu 1 lần nhưng VẪN trả trong `accepted`.\n"
                 "- Kiểm tra từng mục: mục sai schema vào `rejected`, các mục khác vẫn nhận.\n"
                 "- `userId` lấy từ JWT (`sub`), không tin trường `userId` trong payload.\n"
                 "- Trả lời trong 5 giây (app hết chờ sau 5 giây).\n\n"
-                "WebSocket (không mô tả được bằng OpenAPI): STOMP tại `/ws`, gửi JWT trong header "
-                "`Authorization` của frame CONNECT; app subscribe `/user/queue/config` và nhận JSON theo schema "
-                "`Config` mỗi khi cấu hình đổi; Dashboard subscribe `/topic/user/{userId}/status`."),
+                "Realtime (không mô tả được bằng OpenAPI): Socket.IO v4 tại `/socket.io/` qua Gateway (polling và "
+                "WebSocket). Client gửi JWT trong `auth: {token}` lúc kết nối; sai / hết hạn token thì server từ chối "
+                "(`connect_error` với message `unauthorized`), client lấy token mới rồi kết nối lại. Client không tự "
+                "join room: server tự đưa socket vào room `user:{sub}` (và `org:{orgId}` nếu là MANAGER). "
+                "Server phát 2 sự kiện: `config` (JSON theo schema `Config`, mỗi khi cấu hình đổi – app nhận) và "
+                "`status` (`{userId, deviceId, state: GOOD|BAD|AWAY|OFFLINE, alertType, ts}` – Dashboard nhận)."),
         },
         "servers": [{"url": "http://127.0.0.1:8080", "description": "mock_server.py / máy dev"}],
         "tags": [{"name": "telemetry"}, {"name": "auth"}, {"name": "config"}, {"name": "system"}],
@@ -119,7 +122,7 @@ def main():
                         "responses": {"200": {"description": "Cấu hình", "content": {"application/json": {
                             "schema": {"$ref": "#/components/schemas/Config"}}}}, "401": err("Chưa đăng nhập")}},
                 "put": {"tags": ["config"], "summary": "Lưu cấu hình (từ Web Dashboard)",
-                        "description": "Lưu xong backend đẩy cấu hình qua WebSocket `/user/queue/config` "
+                        "description": "Lưu xong backend đẩy sự kiện Socket.IO `config` tới room `user:{sub}` "
                                        "(qua topic Kafka `config.updates`).",
                         "requestBody": {"required": True, "content": {"application/json": {"schema": {
                             "$ref": "#/components/schemas/Config"}}}},

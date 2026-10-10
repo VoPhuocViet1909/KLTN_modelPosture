@@ -20,7 +20,7 @@ Endpoint:
   PUT  /api/v1/config/me              -> lưu cấu hình (kiểm tra theo config.schema.json)
   GET  /api/v1/stats                  -> (chỉ mock) đếm số sự kiện / metrics đã nhận
   GET  /live                          -> (chỉ mock) trang web xem trực tiếp dữ liệu nhận được
-WebSocket /ws (STOMP) KHÔNG có trong mock.
+Realtime Socket.IO (/socket.io/, xem README api_handover) KHÔNG có trong mock.
 Dữ liệu nhận được ghi vào mock_data/events.jsonl và mock_data/metrics.jsonl (đã bỏ trùng theo id).
 """
 import argparse
