@@ -1,4 +1,4 @@
-# Gói bàn giao API v1.0 – Desktop App → Backend
+# Gói bàn giao API v1.2 – Desktop App → Backend
 
 Thư mục này là **toàn bộ những gì backend cần** để làm phần nhận dữ liệu, không cần webcam hay chạy Desktop App.
 Kế hoạch chi tiết, lộ trình và các câu hỏi cần chốt nằm trong tài liệu "Kế hoạch bàn giao API".
@@ -9,7 +9,7 @@ Chỉ cần Python 3.9+ (thư viện chuẩn) để chạy các script; `tools/b
 
 | File | Dùng để |
 | --- | --- |
-| `openapi.yaml` | Đặc tả 5 endpoint (OpenAPI 3.1). Mở bằng https://editor.swagger.io hoặc import vào Postman; sinh DTO / controller bằng openapi-generator |
+| `openapi.yaml` | Đặc tả 14 thao tác trên 12 đường dẫn (OpenAPI 3.1, v1.2: gồm auth, quản lý tài khoản, telemetry, config, health). Mở bằng https://editor.swagger.io hoặc import vào Postman; sinh DTO / controller bằng openapi-generator |
 | `schemas/*.json` | **Nguồn chuẩn duy nhất** của dữ liệu: `event`, `metrics`, `batch`, `config` (JSON Schema 2020-12). Backend kiểm tra dữ liệu bằng chính các file này |
 | `mock_server.py` + `schema.py` | Server giả chạy đúng hợp đồng – để đối chiếu hành vi |
 | `contract_test.py` | 29 bài kiểm tra hợp đồng, chạy vào bất kỳ server nào. **Mốc M2 = đạt 100%** |
@@ -106,7 +106,7 @@ Chưa có trong mock.
 | --- | --- |
 | Địa chỉ | `http://<gateway>/socket.io/`, Socket.IO v4 (Engine.IO 4), polling và WebSocket |
 | Xác thực | JWT trong `auth: {token}` lúc kết nối. Sai / hết hạn → `connect_error`, message `unauthorized`; client refresh token rồi kết nối lại |
-| Room | Server tự join: `user:{sub}`; MANAGER thêm `org:{orgId}`. Client không gửi lệnh join |
+| Room | Server tự join: `user:{sub}`; ORG_ADMIN thêm `org:{orgId}`. Client không gửi lệnh join |
 | Sự kiện `config` | Server → app, JSON theo `config.schema.json`, mỗi khi Dashboard lưu cấu hình (nguồn: Kafka `config.updates`) |
 | Sự kiện `status` | Server → Dashboard, `{userId, deviceId, state: GOOD \| BAD \| AWAY \| OFFLINE, alertType, ts}` |
 
@@ -117,3 +117,32 @@ Phía backend dùng netty-socketio 2.0.14: cần kiểm tra server đọc đư�
 (`HandshakeData.getAuthToken()`); nếu không được thì chốt lại cách gửi token trước khi làm client.
 
 v1.0 → v1.1: chỉ đổi phần realtime (STOMP `/ws` → Socket.IO). REST và `schemas/*.json` giữ nguyên.
+
+## v1.1 → v1.2: endpoint auth và quản lý tài khoản
+
+`openapi.yaml` thêm (nguồn đối chiếu: tài liệu OpenAPI do auth-service thật sinh ra):
+
+| Endpoint | Quyền | Dùng cho |
+| --- | --- | --- |
+| `GET /api/v1/auth/me` | mọi role | thông tin người đang đăng nhập |
+| `POST /api/v1/auth/logout` | mọi role | thu hồi một refresh token (luôn 204) |
+| `GET /api/v1/auth/.well-known/jwks.json` | không cần token | khóa công khai kiểm token (Gateway dùng) |
+| `GET`, `POST /api/v1/users` | ORG_ADMIN, SYS_ADMIN | danh sách (phân trang, `size` tối đa 100) và tạo user |
+| `GET /api/v1/users/{id}` | ORG_ADMIN, SYS_ADMIN | chi tiết user |
+| `PATCH /api/v1/users/{id}/role` | ORG_ADMIN, SYS_ADMIN | đổi role |
+| `PATCH /api/v1/users/{id}/status` | ORG_ADMIN, SYS_ADMIN | khóa / mở khóa |
+
+Quy tắc phạm vi: ORG_ADMIN chỉ thấy và sửa user cùng tổ chức (tổ chức khác trả 404), không gán được SYS_ADMIN và
+không động vào tài khoản SYS_ADMIN; admin không tự đổi role hay tự khóa mình; khóa user hoặc đổi role thu hồi mọi
+refresh token của user; nâng role chỉ có hiệu lực sau khi user đăng nhập lại.
+
+Các chỗ hợp đồng cũ đã sửa cho khớp backend:
+
+- Body lỗi `Error` từ `{error}` thành `{code, message, traceId, errors[{field, message}]}`; thêm bảng mã lỗi.
+- `login` và `refresh` thêm 400 (`VALIDATION_FAILED`, `MALFORMED_REQUEST`) và 500; thêm ràng buộc `maxLength`
+  (`email` 254, `password` 200, `deviceId` 128, `deviceName` 200, `refreshToken` 512).
+- Mô tả Socket.IO: `MANAGER` đổi thành `ORG_ADMIN` (role thật trong token).
+
+**`mock_server.py` CHƯA mô phỏng** `GET /auth/me`, `POST /auth/logout` và các endpoint `/users`. Frontend cần
+backend thật (auth-service qua Gateway; bật `SWAGGER_ENABLED=true` để thử trên Swagger UI) để thử các API này.
+`contract_test.py` cũng chưa kiểm chúng.

@@ -38,6 +38,20 @@ def err(desc):
     return {"description": desc, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}}
 
 
+AUTH_401 = ("Thiếu / sai / hết hạn token (`AUTH_TOKEN_MISSING`, `AUTH_TOKEN_INVALID`, `AUTH_TOKEN_EXPIRED` "
+            "từ Gateway).")
+FORBIDDEN = "`AUTH_FORBIDDEN`: role không đủ quyền hoặc vi phạm quy tắc phạm vi"
+NOT_FOUND = "`USER_NOT_FOUND`: không có user này, hoặc user thuộc tổ chức khác (với ORG_ADMIN)"
+VALIDATION = "`VALIDATION_FAILED` (chi tiết theo trường trong `errors`) hoặc `MALFORMED_REQUEST`"
+SCOPE = ("Phạm vi: ORG_ADMIN chỉ thấy và sửa user cùng tổ chức, user tổ chức khác trả 404; ORG_ADMIN không được "
+         "gán role SYS_ADMIN và không được động vào tài khoản SYS_ADMIN; SYS_ADMIN thao tác được mọi user.")
+SELF = "Admin không được tự đổi role hay tự khóa chính mình (403)."
+RAISE = ("Nâng role chỉ có hiệu lực sau khi user đăng nhập lại (token cũ vẫn mang role cũ); hạ role có hiệu lực "
+         "ngay với các API quản lý tài khoản.")
+USER_ID = {"name": "id", "in": "path", "required": True, "description": "Id người dùng (UUID)",
+           "schema": {"type": "string", "format": "uuid"}}
+
+
 def main():
     event, metrics, batch, config = (load(n) for n in ("event", "metrics", "batch", "config"))
     batch = fix_refs(copy.deepcopy(batch))
@@ -60,9 +74,12 @@ def main():
         "openapi": "3.1.0",
         "info": {
             "title": "Posture Monitor – API giữa Desktop App và Backend",
-            "version": "1.1.0",
+            "version": "1.2.0",
             "description": (
-                "Hợp đồng API v1.1 giữa Desktop App (edge) và backend microservice.\n\n"
+                "Thay đổi v1.2: thêm `GET /auth/me`, `POST /auth/logout`, các endpoint quản lý tài khoản `/users` và "
+                "`GET /auth/.well-known/jwks.json`; body lỗi `Error` đổi thành `{code, message, traceId, errors}`; "
+                "`login`/`refresh` thêm mã 400 và 500; thêm bảng mã lỗi; `MANAGER` -> `ORG_ADMIN`.\n\n"
+                "Hợp đồng API v1.2 giữa Desktop App (edge), Web Dashboard và backend microservice.\n\n"
                 "- Thời gian: ISO-8601 UTC (`...Z`). Body: JSON UTF-8.\n"
                 "- Chống trùng: cùng `eventId` / `metricId` chỉ lưu 1 lần nhưng VẪN trả trong `accepted`.\n"
                 "- Kiểm tra từng mục: mục sai schema vào `rejected`, các mục khác vẫn nhận.\n"
@@ -71,12 +88,30 @@ def main():
                 "Realtime (không mô tả được bằng OpenAPI): Socket.IO v4 tại `/socket.io/` qua Gateway (polling và "
                 "WebSocket). Client gửi JWT trong `auth: {token}` lúc kết nối; sai / hết hạn token thì server từ chối "
                 "(`connect_error` với message `unauthorized`), client lấy token mới rồi kết nối lại. Client không tự "
-                "join room: server tự đưa socket vào room `user:{sub}` (và `org:{orgId}` nếu là MANAGER). "
+                "join room: server tự đưa socket vào room `user:{sub}` (và `org:{orgId}` nếu là ORG_ADMIN). "
                 "Server phát 2 sự kiện: `config` (JSON theo schema `Config`, mỗi khi cấu hình đổi – app nhận) và "
-                "`status` (`{userId, deviceId, state: GOOD|BAD|AWAY|OFFLINE, alertType, ts}` – Dashboard nhận)."),
+                "`status` (`{userId, deviceId, state: GOOD|BAD|AWAY|OFFLINE, alertType, ts}` – Dashboard nhận).\n\n"
+                "Body lỗi chung: `{code, message, traceId, errors[{field, message}]}`; `errors` rỗng khi lỗi không "
+                "gắn với trường nào. Chỉ dùng `code` để rẽ nhánh, `message` chỉ để hiển thị. Mã lỗi:\n\n"
+                "| `code` | HTTP | Ý nghĩa |\n| --- | --- | --- |\n"
+                "| `AUTH_TOKEN_MISSING` | 401 | Gateway: không có `Authorization: Bearer` |\n"
+                "| `AUTH_TOKEN_INVALID` | 401 | Gateway: token sai chữ ký, sai issuer hoặc sai định dạng |\n"
+                "| `AUTH_TOKEN_EXPIRED` | 401 | Gateway: token hết hạn – dùng `refresh` rồi gửi lại |\n"
+                "| `AUTH_IDENTITY_MISSING` | 401 | Dịch vụ không xác định được người gọi (không còn tồn tại hoặc bị khóa) |\n"
+                "| `AUTH_INVALID_CREDENTIALS` | 401 | Sai email hoặc mật khẩu, hoặc tài khoản bị khóa (không phân biệt) |\n"
+                "| `AUTH_INVALID_REFRESH_TOKEN` | 401 | Refresh token không có, hết hạn hoặc đã dùng / đã thu hồi |\n"
+                "| `AUTH_FORBIDDEN` | 403 | Thiếu quyền hoặc vi phạm quy tắc phạm vi (không nói rõ lý do) |\n"
+                "| `USER_NOT_FOUND` | 404 | Không có user này (kể cả user của tổ chức khác) |\n"
+                "| `USER_EMAIL_TAKEN` | 409 | Email đã được dùng (không phân biệt hoa thường) |\n"
+                "| `VALIDATION_FAILED` | 400 | Sai ràng buộc; chi tiết theo trường trong `errors` |\n"
+                "| `MALFORMED_REQUEST` | 400 | Body không phải JSON hợp lệ |\n"
+                "| `INTERNAL_ERROR` | 500 | Lỗi bất ngờ phía server |\n"
+                "| `HTTP_<mã>` | 4xx | Lỗi khung chung, ví dụ `HTTP_405`, `HTTP_415` |\n\n"
+                "Các endpoint khác (telemetry, config) có thể trả thêm mã riêng, mô tả ở từng endpoint. "
+                "`503 AUTH_UNAVAILABLE` do Gateway trả khi tạm thời không lấy được khóa kiểm token."),
         },
         "servers": [{"url": "http://127.0.0.1:8080", "description": "mock_server.py / máy dev"}],
-        "tags": [{"name": "telemetry"}, {"name": "auth"}, {"name": "config"}, {"name": "system"}],
+        "tags": [{"name": "telemetry"}, {"name": "auth"}, {"name": "users"}, {"name": "config"}, {"name": "system"}],
         "paths": {
             "/api/v1/health": {"get": {
                 "tags": ["system"], "summary": "Kiểm tra server sống", "security": [],
@@ -87,17 +122,105 @@ def main():
                 "tags": ["auth"], "summary": "Đăng nhập trên Desktop App", "security": [],
                 "requestBody": {"required": True, "content": {"application/json": {"schema": {
                     "$ref": "#/components/schemas/LoginRequest"}}}},
+                "description": "Không cần token. Access token sống 15 phút (`expiresIn` = 900 giây); refresh token "
+                               "dùng một lần. Tài khoản bị khóa nhận cùng lỗi với sai mật khẩu.",
                 "responses": {"200": {"description": "Đăng nhập thành công", "content": {"application/json": {
                     "schema": {"$ref": "#/components/schemas/LoginResponse"}}}},
-                    "401": err("Sai email hoặc mật khẩu")}}},
+                    "400": err("`VALIDATION_FAILED` (email sai định dạng, thiếu trường, quá dài) hoặc "
+                               "`MALFORMED_REQUEST`"),
+                    "401": err("`AUTH_INVALID_CREDENTIALS`: sai email hoặc mật khẩu, hoặc tài khoản bị khóa"),
+                    "500": err("`INTERNAL_ERROR`")}}},
             "/api/v1/auth/refresh": {"post": {
                 "tags": ["auth"], "summary": "Lấy access token mới (app chạy cả ngày)", "security": [],
+                "description": "Không cần token. Refresh token xoay vòng: token vừa gửi bị thu hồi, dùng lại sẽ "
+                               "nhận 401. Khóa user hoặc đổi role cũng thu hồi mọi refresh token của user đó.",
                 "requestBody": {"required": True, "content": {"application/json": {"schema": {
                     "type": "object", "required": ["refreshToken"],
-                    "properties": {"refreshToken": {"type": "string"}}}}}},
+                    "properties": {"refreshToken": {"type": "string", "maxLength": 512}}}}}},
                 "responses": {"200": {"description": "Token mới", "content": {"application/json": {"schema": {
                     "$ref": "#/components/schemas/TokenPair"}}}},
-                    "401": err("Refresh token sai hoặc hết hạn")}}},
+                    "400": err("`VALIDATION_FAILED` hoặc `MALFORMED_REQUEST`"),
+                    "401": err("`AUTH_INVALID_REFRESH_TOKEN`: token sai, hết hạn, đã dùng hoặc đã bị thu hồi"),
+                    "500": err("`INTERNAL_ERROR`")}}},
+            "/api/v1/auth/.well-known/jwks.json": {"get": {
+                "tags": ["auth"], "summary": "Khóa công khai để kiểm access token (JWK Set)", "security": [],
+                "description": "Không cần token. Chỉ chứa khóa công khai RS256; Gateway dùng để kiểm chữ ký. "
+                               "Cache được 5 phút.",
+                "responses": {"200": {"description": "JWK Set", "content": {"application/json": {"schema": {
+                    "type": "object", "required": ["keys"], "properties": {"keys": {
+                        "type": "array", "items": {"type": "object"}}}}}}}}}},
+            "/api/v1/auth/me": {"get": {
+                "tags": ["auth"], "summary": "Thông tin người dùng đang đăng nhập",
+                "description": "Quyền: `PROFILE_READ` (mọi role). Đọc từ cơ sở dữ liệu nên `role`, `orgId`, `enabled` "
+                               "luôn mới nhất, dù token được cấp trước đó.",
+                "responses": {"200": {"description": "Người gọi", "content": {"application/json": {"schema": {
+                    "$ref": "#/components/schemas/UserAccount"}}}},
+                    "401": err(AUTH_401 + " Hoặc `AUTH_IDENTITY_MISSING` nếu user không còn hoặc bị khóa.")}}},
+            "/api/v1/auth/logout": {"post": {
+                "tags": ["auth"], "summary": "Đăng xuất: thu hồi một refresh token",
+                "description": "Quyền: `SESSION_LOGOUT` (mọi role). Chỉ thu hồi nếu refresh token thuộc người gọi. "
+                               "Luôn trả 204, kể cả token không tồn tại hoặc của người khác (không lộ thông tin). "
+                               "Access token hiện tại vẫn dùng được đến khi hết hạn (15 phút); app nên xóa token cục bộ.",
+                "requestBody": {"required": True, "content": {"application/json": {"schema": {
+                    "$ref": "#/components/schemas/LogoutRequest"}}}},
+                "responses": {"204": {"description": "Đã xử lý"},
+                              "400": err("`VALIDATION_FAILED` (thiếu `refreshToken`) hoặc `MALFORMED_REQUEST`"),
+                              "401": err(AUTH_401)}}},
+            "/api/v1/users": {
+                "get": {"tags": ["users"], "summary": "Danh sách người dùng (có phân trang)",
+                        "description": "Quyền: `USER_READ` (ORG_ADMIN, SYS_ADMIN). " + SCOPE +
+                                       " ORG_ADMIN không thuộc tổ chức nào nhận 403. Sắp xếp theo thời điểm tạo, "
+                                       "cũ trước.",
+                        "parameters": [
+                            {"name": "page", "in": "query", "required": False, "description": "Trang, bắt đầu từ 0",
+                             "schema": {"type": "integer", "minimum": 0, "default": 0}},
+                            {"name": "size", "in": "query", "required": False, "description": "Số mục mỗi trang",
+                             "schema": {"type": "integer", "minimum": 1, "maximum": 100, "default": 20}}],
+                        "responses": {"200": {"description": "Một trang user", "content": {"application/json": {
+                            "schema": {"$ref": "#/components/schemas/UserPage"}}}},
+                            "400": err("`VALIDATION_FAILED`: `page` < 0 hoặc `size` ngoài 1..100"),
+                            "401": err(AUTH_401), "403": err(FORBIDDEN)}},
+                "post": {"tags": ["users"], "summary": "Tạo người dùng",
+                         "description": "Quyền: `USER_CREATE` (ORG_ADMIN, SYS_ADMIN). ORG_ADMIN luôn tạo trong tổ chức "
+                                        "của mình (bỏ qua `orgId` trong body) và không được tạo SYS_ADMIN. "
+                                        "SYS_ADMIN tự chọn `orgId` (có thể null). Không trả mật khẩu hay hash.",
+                         "requestBody": {"required": True, "content": {"application/json": {"schema": {
+                             "$ref": "#/components/schemas/CreateUserRequest"}}}},
+                         "responses": {"201": {"description": "Đã tạo", "content": {"application/json": {
+                             "schema": {"$ref": "#/components/schemas/UserAccount"}}}},
+                             "400": err(VALIDATION), "401": err(AUTH_401), "403": err(FORBIDDEN),
+                             "409": err("`USER_EMAIL_TAKEN`: email đã được dùng")}}},
+            "/api/v1/users/{id}": {"get": {
+                "tags": ["users"], "summary": "Chi tiết một người dùng",
+                "description": "Quyền: `USER_READ` (ORG_ADMIN, SYS_ADMIN). " + SCOPE,
+                "parameters": [USER_ID],
+                "responses": {"200": {"description": "User", "content": {"application/json": {"schema": {
+                    "$ref": "#/components/schemas/UserAccount"}}}},
+                    "401": err(AUTH_401), "403": err(FORBIDDEN), "404": err(NOT_FOUND)}}},
+            "/api/v1/users/{id}/role": {"patch": {
+                "tags": ["users"], "summary": "Đổi role người dùng",
+                "description": "Quyền: `USER_ASSIGN_ROLE` (ORG_ADMIN, SYS_ADMIN). " + SCOPE + " " + SELF + " "
+                               "Đổi sang role khác sẽ thu hồi mọi refresh token của user. " + RAISE,
+                "parameters": [USER_ID],
+                "requestBody": {"required": True, "content": {"application/json": {"schema": {
+                    "$ref": "#/components/schemas/ChangeRoleRequest"}}}},
+                "responses": {"200": {"description": "User sau khi đổi", "content": {"application/json": {
+                    "schema": {"$ref": "#/components/schemas/UserAccount"}}}},
+                    "400": err(VALIDATION), "401": err(AUTH_401), "403": err(FORBIDDEN),
+                    "404": err(NOT_FOUND)}}},
+            "/api/v1/users/{id}/status": {"patch": {
+                "tags": ["users"], "summary": "Khóa / mở khóa người dùng",
+                "description": "Quyền: `USER_UPDATE_STATUS` (ORG_ADMIN, SYS_ADMIN). " + SCOPE + " " + SELF + " "
+                               "Khóa (`enabled=false`) thu hồi mọi refresh token của user; mở khóa không khôi phục "
+                               "chúng. Access token đã cấp vẫn dùng được với các dịch vụ khác đến khi hết hạn "
+                               "(15 phút); các API quản lý tài khoản kiểm lại cơ sở dữ liệu nên có hiệu lực ngay.",
+                "parameters": [USER_ID],
+                "requestBody": {"required": True, "content": {"application/json": {"schema": {
+                    "$ref": "#/components/schemas/ChangeStatusRequest"}}}},
+                "responses": {"200": {"description": "User sau khi đổi", "content": {"application/json": {
+                    "schema": {"$ref": "#/components/schemas/UserAccount"}}}},
+                    "400": err(VALIDATION), "401": err(AUTH_401), "403": err(FORBIDDEN),
+                    "404": err(NOT_FOUND)}}},
             "/api/v1/telemetry/batch": {"post": {
                 "tags": ["telemetry"], "summary": "Nhận một lô sự kiện + metrics từ Desktop App",
                 "description": "App gửi mỗi 5 giây (sự kiện khẩn gửi ngay), tối đa 100 mục / lô. "
@@ -142,8 +265,10 @@ def main():
                                  "description": "id sai schema – app KHÔNG gửi lại"},
                     "duplicates": {"type": "integer", "minimum": 0}}},
                 "LoginRequest": {"type": "object", "required": ["email", "password"], "properties": {
-                    "email": {"type": "string", "format": "email"}, "password": {"type": "string"},
-                    "deviceId": {"type": "string"}, "deviceName": {"type": "string"}}},
+                    "email": {"type": "string", "format": "email", "maxLength": 254},
+                    "password": {"type": "string", "maxLength": 200},
+                    "deviceId": {"type": "string", "maxLength": 128},
+                    "deviceName": {"type": "string", "maxLength": 200}}},
                 "TokenPair": {"type": "object", "required": ["accessToken", "refreshToken", "expiresIn"],
                               "properties": {"accessToken": {"type": "string"}, "refreshToken": {"type": "string"},
                                              "expiresIn": {"type": "integer", "description": "giây"}}},
@@ -153,7 +278,44 @@ def main():
                             "id": {"type": "string"}, "name": {"type": "string"},
                             "orgId": {"type": ["string", "null"]},
                             "role": {"enum": ["USER", "ORG_ADMIN", "SYS_ADMIN"]}}}}}]},
-                "Error": {"type": "object", "properties": {"error": {}}},
+                "Error": {"type": "object", "required": ["code", "message", "errors"], "properties": {
+                    "code": {"type": "string", "description": "mã ổn định cho máy xử lý, xem bảng mã lỗi ở đầu tài liệu"},
+                    "message": {"type": "string", "description": "câu hiển thị, không dùng để rẽ nhánh logic"},
+                    "traceId": {"type": ["string", "null"], "description": "mã vết của request, dùng để tra log"},
+                    "errors": {"type": "array", "items": {"$ref": "#/components/schemas/FieldProblem"},
+                               "description": "lỗi theo từng trường; rỗng nếu lỗi không gắn với trường"}}},
+                "FieldProblem": {"type": "object", "required": ["field", "message"], "properties": {
+                    "field": {"type": "string", "description": "tên trường sai"},
+                    "message": {"type": "string", "description": "lý do; không bao giờ chứa giá trị đã gửi"}}},
+                "UserAccount": {"type": "object", "required": ["id", "email", "role", "enabled"], "properties": {
+                    "id": {"type": "string", "description": "UUID; bằng `sub` của access token"},
+                    "email": {"type": "string"},
+                    "name": {"type": ["string", "null"]},
+                    "role": {"enum": ["USER", "ORG_ADMIN", "SYS_ADMIN"]},
+                    "orgId": {"type": ["string", "null"], "description": "null nếu user không thuộc tổ chức nào"},
+                    "enabled": {"type": "boolean", "description": "false = tài khoản bị khóa"}}},
+                "UserPage": {"type": "object", "required": ["items", "page", "size", "total"], "properties": {
+                    "items": {"type": "array", "items": {"$ref": "#/components/schemas/UserAccount"}},
+                    "page": {"type": "integer", "description": "trang, bắt đầu từ 0"},
+                    "size": {"type": "integer", "description": "kích thước trang yêu cầu (tối đa 100)"},
+                    "total": {"type": "integer", "description": "tổng số user người gọi được thấy"}}},
+                "CreateUserRequest": {"type": "object", "required": ["email", "password", "role"], "properties": {
+                    "email": {"type": "string", "format": "email", "maxLength": 254,
+                              "description": "duy nhất, không phân biệt hoa thường"},
+                    "password": {"type": "string", "minLength": 8, "maxLength": 200,
+                                 "description": "8 ký tự – tối đa 72 byte UTF-8 (giới hạn của BCrypt); "
+                                                "quá 72 byte trả 400"},
+                    "name": {"type": "string", "maxLength": 200},
+                    "role": {"enum": ["USER", "ORG_ADMIN", "SYS_ADMIN"],
+                             "description": "ORG_ADMIN không được gán SYS_ADMIN"},
+                    "orgId": {"type": ["string", "null"], "format": "uuid",
+                              "description": "bị bỏ qua nếu người gọi là ORG_ADMIN (luôn là tổ chức của họ)"}}},
+                "ChangeRoleRequest": {"type": "object", "required": ["role"], "properties": {
+                    "role": {"enum": ["USER", "ORG_ADMIN", "SYS_ADMIN"]}}},
+                "ChangeStatusRequest": {"type": "object", "required": ["enabled"], "properties": {
+                    "enabled": {"type": "boolean", "description": "false = khóa và thu hồi mọi refresh token"}}},
+                "LogoutRequest": {"type": "object", "required": ["refreshToken"], "properties": {
+                    "refreshToken": {"type": "string", "maxLength": 512}}},
             },
         },
         "security": [{"bearerAuth": []}],

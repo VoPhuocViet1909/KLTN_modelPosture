@@ -1,0 +1,2 @@
+# Tài liệu OpenAPI do backend sinh ra, chỉ dùng để đối chiếu khi cập nhật openapi.yaml; không commit.
+tools/auth-api-docs.json
