@@ -1,4 +1,4 @@
-# Gói bàn giao API v1.2 – Desktop App → Backend
+# Gói bàn giao API v1.3 – Desktop App → Backend
 
 Thư mục này là **toàn bộ những gì backend cần** để làm phần nhận dữ liệu, không cần webcam hay chạy Desktop App.
 Kế hoạch chi tiết, lộ trình và các câu hỏi cần chốt nằm trong tài liệu "Kế hoạch bàn giao API".
@@ -9,7 +9,7 @@ Chỉ cần Python 3.9+ (thư viện chuẩn) để chạy các script; `tools/b
 
 | File | Dùng để |
 | --- | --- |
-| `openapi.yaml` | Đặc tả 14 thao tác trên 12 đường dẫn (OpenAPI 3.1, v1.2: gồm auth, quản lý tài khoản, telemetry, config, health). Mở bằng https://editor.swagger.io hoặc import vào Postman; sinh DTO / controller bằng openapi-generator |
+| `openapi.yaml` | Đặc tả 14 thao tác trên 12 đường dẫn (OpenAPI 3.1, v1.3: gồm auth, quản lý tài khoản, telemetry, config, health). Mở bằng https://editor.swagger.io hoặc import vào Postman; sinh DTO / controller bằng openapi-generator |
 | `schemas/*.json` | **Nguồn chuẩn duy nhất** của dữ liệu: `event`, `metrics`, `batch`, `config` (JSON Schema 2020-12). Backend kiểm tra dữ liệu bằng chính các file này |
 | `mock_server.py` + `schema.py` | Server giả chạy đúng hợp đồng – để đối chiếu hành vi |
 | `contract_test.py` | 29 bài kiểm tra hợp đồng, chạy vào bất kỳ server nào. **Mốc M2 = đạt 100%** |
@@ -105,16 +105,17 @@ Chưa có trong mock.
 | Mục | Quy ước |
 | --- | --- |
 | Địa chỉ | `http://<gateway>/socket.io/`, Socket.IO v4 (Engine.IO 4), polling và WebSocket |
-| Xác thực | JWT trong `auth: {token}` lúc kết nối. Sai / hết hạn → `connect_error`, message `unauthorized`; client refresh token rồi kết nối lại |
-| Room | Server tự join: `user:{sub}`; ORG_ADMIN thêm `org:{orgId}`. Client không gửi lệnh join |
-| Sự kiện `config` | Server → app, JSON theo `config.schema.json`, mỗi khi Dashboard lưu cấu hình (nguồn: Kafka `config.updates`) |
-| Sự kiện `status` | Server → Dashboard, `{userId, deviceId, state: GOOD \| BAD \| AWAY \| OFFLINE, alertType, ts}` |
+| Xác thực | JWT trong `auth: {token}` lúc kết nối. Thiếu / sai / hết hạn → `connect_error`, message đúng `unauthorized` (không nêu lý do). Không gửi `auth` → bị từ chối sau tối đa vài giây (mặc định 5 giây), trong lúc chờ không nhận gì. Auth-service chưa sẵn sàng cũng là `unauthorized`: thử lại sau |
+| Hết hạn token | Server tự ngắt kết nối đúng lúc `exp`. Client gọi `refresh` rồi **tự** kết nối lại (thư viện client không tự kết nối lại khi chính server ngắt) |
+| Room | Server tự join: `user:{sub}` (app và Dashboard của cùng user dùng chung); ORG_ADMIN có tổ chức thêm `org:{orgId}`. Client không gửi lệnh join (gửi cũng bị bỏ qua) |
+| Sự kiện `config` | Server → app và Dashboard, **toàn bộ** cấu hình đã lưu (JSON theo `config.schema.json`, giống `GET /config/me`, không phải phần thay đổi), sau mỗi `PUT /config/me` thành công, thường trong vài giây. Không bao giờ gửi bản cũ hơn bản đã gửi; có thể trễ hoặc lỡ khi mất kết nối nên app vẫn `GET /config/me` lúc khởi động |
+| Sự kiện `status` | **Chưa có ở backend.** Dự kiến: server → Dashboard, `{userId, deviceId, state: GOOD \| BAD \| AWAY \| OFFLINE, alertType, ts}`; mô tả chi tiết khi làm |
 
 Client Python (app): `python-socketio`, `sio.connect(base, auth={"token": jwt}, socketio_path="socket.io")`.
 Client React: `io(base, { auth: { token } })`.
 
-Phía backend dùng netty-socketio 2.0.14: cần kiểm tra server đọc được `auth` của gói CONNECT
-(`HandshakeData.getAuthToken()`); nếu không được thì chốt lại cách gửi token trước khi làm client.
+Phía backend (notification-service, netty-socketio 2.0.14) đã kiểm bằng client Socket.IO v4 thật: server đọc được
+`auth` của gói CONNECT và trả đúng `connect_error` `unauthorized`.
 
 v1.0 → v1.1: chỉ đổi phần realtime (STOMP `/ws` → Socket.IO). REST và `schemas/*.json` giữ nguyên.
 
@@ -146,3 +147,25 @@ Các chỗ hợp đồng cũ đã sửa cho khớp backend:
 **`mock_server.py` CHƯA mô phỏng** `GET /auth/me`, `POST /auth/logout` và các endpoint `/users`. Frontend cần
 backend thật (auth-service qua Gateway; bật `SWAGGER_ENABLED=true` để thử trên Swagger UI) để thử các API này.
 `contract_test.py` cũng chưa kiểm chúng.
+
+## v1.2 → v1.3: config và Socket.IO theo backend thật
+
+Không thêm hay xoá endpoint, không đổi `schemas/*.json`. Chỉ ghi rõ hành vi backend đang chạy:
+
+- `PUT /api/v1/config/me` **thay toàn bộ** cấu hình: body là tất cả các khoá muốn khác mặc định; khoá không gửi trở
+  về mặc định; `{}` xoá hết tuỳ chỉnh. `GET` chưa lưu gì trả `{}`.
+- Kiểm tra của `PUT` (sai thì 400 `VALIDATION_FAILED` với `errors[{field, message}]`, không lưu gì):
+  kiểu và min/max theo `config.schema.json`; `api_token`, `api_base_url` bị từ chối (chỉ là cấu hình trên máy);
+  `user_id` bị bỏ qua; khoá không có trong schema bị từ chối; khi body có đủ cặp thì
+  `distance_off_cm >= distance_on_cm` và `shoulder_tilt_off <= shoulder_tilt_on` (khi cả hai khác null).
+  Body không phải JSON: 400 `MALFORMED_REQUEST`.
+- Socket.IO: không gửi token bị từ chối sau vài giây; server ngắt khi token hết hạn và client tự kết nối lại sau
+  khi `refresh`; sự kiện `config` là toàn bộ cấu hình; `status` chưa có ở backend.
+
+`config.schema.json` cố ý KHÔNG thêm `additionalProperties: false`: file này còn là schema của `app_config.json`
+trên Desktop App (bản sao trong `posture_model/schemas/`), nên quy tắc "khoá lạ bị từ chối" chỉ áp dụng ở
+`PUT /config/me` của backend.
+
+**`mock_server.py` lỏng hơn backend:** `PUT /config/me` của mock chỉ kiểm theo schema (không từ chối `api_token`,
+`api_base_url`, khoá lạ, không kiểm chéo) và vẫn trả lỗi dạng cũ `{error}`; mock chưa có Socket.IO.
+`contract_test.py` nhóm `config` vẫn đúng với cả mock và backend.
