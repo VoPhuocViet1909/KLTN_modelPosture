@@ -74,13 +74,16 @@ def main():
         "openapi": "3.1.0",
         "info": {
             "title": "Posture Monitor – API giữa Desktop App và Backend",
-            "version": "1.3.0",
+            "version": "1.4.0",
             "description": (
+                "Thay đổi v1.4: thêm `GET/PUT /config/org` cho ORG_ADMIN; `GET /config/me`, phản hồi PUT và sự kiện "
+                "Socket.IO `config` trả cấu hình hiệu lực sau khi gộp tổ chức rồi cá nhân. Notification đã gửi "
+                "sự kiện `status` từ telemetry.\n\n"
                 "Thay đổi v1.3: `PUT /config/me` ghi rõ là thay toàn bộ cấu hình và các quy tắc kiểm tra (khoá lạ, `api_token`/`api_base_url` bị từ chối, `user_id` bị bỏ qua, kiểm chéo khoảng cách và nghiêng vai), 400 trả `VALIDATION_FAILED` theo trường; Socket.IO: kết nối không gửi token bị từ chối sau vài giây, server ngắt khi token hết hạn, sự kiện `config` là toàn bộ cấu hình; `status` chưa có ở backend.\n\n"
                 "Thay đổi v1.2: thêm `GET /auth/me`, `POST /auth/logout`, các endpoint quản lý tài khoản `/users` và "
                 "`GET /auth/.well-known/jwks.json`; body lỗi `Error` đổi thành `{code, message, traceId, errors}`; "
                 "`login`/`refresh` thêm mã 400 và 500; thêm bảng mã lỗi; `MANAGER` -> `ORG_ADMIN`.\n\n"
-                "Hợp đồng API v1.3 giữa Desktop App (edge), Web Dashboard và backend microservice.\n\n"
+                "Hợp đồng API v1.4 giữa Desktop App (edge), Web Dashboard và backend microservice.\n\n"
                 "- Thời gian: ISO-8601 UTC (`...Z`). Body: JSON UTF-8.\n"
                 "- Chống trùng: cùng `eventId` / `metricId` chỉ lưu 1 lần nhưng VẪN trả trong `accepted`.\n"
                 "- Kiểm tra từng mục: mục sai schema vào `rejected`, các mục khác vẫn nhận.\n"
@@ -95,11 +98,12 @@ def main():
                 "rồi TỰ kết nối lại (thư viện client không tự kết nối lại khi chính server ngắt).\n"
                 "- Room: client không tự join. Server đưa socket vào `user:{sub}` (Desktop App và Dashboard của cùng "
                 "user dùng chung) và thêm `org:{orgId}` nếu là ORG_ADMIN có tổ chức; mọi lệnh client gửi lên bị bỏ qua.\n"
-                "- Sự kiện `config`: TOÀN BỘ cấu hình đã lưu của user (JSON theo schema `Config`, giống `GET /config/me`, "
-                "không phải phần thay đổi), gửi tới `user:{sub}` sau mỗi lần `PUT /config/me` thành công, thường trong "
+                "- Sự kiện `config`: TOÀN BỘ cấu hình hiệu lực của user (JSON theo schema `Config`, giống `GET /config/me`, "
+                "không phải phần thay đổi), gửi tới `user:{sub}` sau mỗi lần `PUT /config/me` hoặc `PUT /config/org` "
+                "ảnh hưởng tới user, thường trong "
                 "vài giây. Server không gửi lại bản cũ hơn bản đã gửi; sự kiện có thể trễ hoặc bị lỡ khi mất kết nối nên "
                 "app vẫn gọi `GET /config/me` lúc khởi động.\n"
-                "- Sự kiện `status` (CHƯA có ở backend, sẽ mô tả chi tiết khi làm): `{userId, deviceId, state: "
+                "- Sự kiện `status` từ telemetry: `{userId, deviceId, state: "
                 "GOOD|BAD|AWAY|OFFLINE, alertType, ts}` cho Dashboard.\n\n"
                 "Body lỗi chung: `{code, message, traceId, errors[{field, message}]}`; `errors` rỗng khi lỗi không "
                 "gắn với trường nào. Chỉ dùng `code` để rẽ nhánh, `message` chỉ để hiển thị. Mã lỗi:\n\n"
@@ -251,31 +255,58 @@ def main():
                     "503": err("Server quá tải / bảo trì – app thử lại với backoff")}}},
             "/api/v1/config/me": {
                 "get": {"tags": ["config"], "summary": "Cấu hình của người dùng hiện tại",
-                        "description": "Cấu hình của chính người gọi (`userId` lấy từ token). Chỉ trả các khoá người dùng đã "
-                                       "lưu (khác mặc định); chưa lưu gì thì trả `{}`. App gộp với mặc định của nó.",
+                        "description": "Cấu hình hiệu lực của người gọi: khoá tổ chức, sau đó khoá cá nhân ghi đè. "
+                                       "Chưa có cả hai thì trả `{}`; app vẫn gộp với mặc định của nó. "
+                                       "Lần GET đăng ký user với orgId trong Config để nhận cập nhật tổ chức.",
                         "responses": {"200": {"description": "Cấu hình", "content": {"application/json": {
-                            "schema": {"$ref": "#/components/schemas/Config"}}}}, "401": err("Chưa đăng nhập / token hết hạn")}},
+                            "schema": {"$ref": "#/components/schemas/Config"}}}},
+                            "400": err("VALIDATION_FAILED: tùy chỉnh cá nhân cũ xung đột khi chuyển tổ chức; PUT hợp lệ để sửa"),
+                            "401": err("Chưa đăng nhập / token hết hạn")}},
                 "put": {"tags": ["config"], "summary": "Lưu cấu hình (từ Web Dashboard)",
                         "description": (
                             "Body là TẤT CẢ các khoá người dùng muốn khác mặc định và THAY THẾ toàn bộ bản cũ: "
-                            "khoá không gửi trở về mặc định, `{}` xoá hết tuỳ chỉnh. Trả 200 với cấu hình đã lưu.\n\n"
+                            "khoá không gửi trở về cấu hình tổ chức hoặc mặc định app, `{}` xoá hết tuỳ chỉnh "
+                            "cá nhân. Trả 200 với cấu hình hiệu lực.\n\n"
                             "Kiểm tra (sai thì 400 `VALIDATION_FAILED` với `errors[{field, message}]`, không trả lại "
                             "giá trị bị từ chối, không lưu gì):\n"
                             "1. Kiểu và min/max theo schema `Config` (`null` chỉ ở khoá cho phép).\n"
                             "2. `api_token`, `api_base_url` là cấu hình riêng trên máy: gửi lên bị từ chối.\n"
                             "3. `user_id` bị bỏ qua (không lưu, không báo lỗi).\n"
                             "4. Khoá không có trong schema `Config` bị từ chối.\n"
-                            "5. Chỉ khi body có đủ cả hai khoá của cặp: `distance_off_cm >= distance_on_cm`; "
-                            "`shoulder_tilt_off <= shoulder_tilt_on` (khi cả hai khác null). Cặp có khoá đã sai ở "
-                            "bước trước thì không kiểm chéo.\n\n"
+                            "5. Kiểm tra trên cấu hình hiệu lực sau khi gộp tổ chức và cá nhân: "
+                            "`distance_off_cm >= distance_on_cm`; `shoulder_tilt_off <= shoulder_tilt_on` "
+                            "(khi cả hai khác null). Với khoảng cách, khóa vắng mặt dùng mặc định app 50/55 cm "
+                            "để kiểm tra. Nếu xung đột, không lưu và không phát sự kiện.\n\n"
                             "Body không phải JSON: 400 `MALFORMED_REQUEST`. Lưu xong backend đẩy sự kiện Socket.IO "
-                            "`config` (toàn bộ cấu hình) tới room `user:{sub}`."),
+                            "`config` (toàn bộ cấu hình hiệu lực) tới room `user:{sub}`."),
                         "requestBody": {"required": True, "content": {"application/json": {"schema": {
                             "$ref": "#/components/schemas/Config"}}}},
                         "responses": {"200": {"description": "Đã lưu", "content": {"application/json": {
                             "schema": {"$ref": "#/components/schemas/Config"}}}},
                             "400": err("`VALIDATION_FAILED` (chi tiết theo trường) hoặc `MALFORMED_REQUEST`"),
                             "401": err("Chưa đăng nhập / token hết hạn")}}},
+            "/api/v1/config/org": {
+                "get": {"tags": ["config"], "summary": "Cấu hình lưu cho tổ chức của người gọi",
+                        "description": "Chỉ ORG_ADMIN có orgId. Trả các khoá tổ chức đã lưu, hoặc `{}`.",
+                        "responses": {"200": {"description": "Các khoá tổ chức đã lưu", "content": {"application/json": {
+                            "schema": {"$ref": "#/components/schemas/Config"}}}},
+                            "401": err("Chưa đăng nhập / token hết hạn"), "403": err(FORBIDDEN)}},
+                "put": {"tags": ["config"], "summary": "Thay toàn bộ cấu hình tổ chức",
+                        "description": "Chỉ ORG_ADMIN có orgId. Body thay toàn bộ các khoá tổ chức; `{}` xoá hết. "
+                                       "Kiểm tra như PUT /config/me, cấm thêm các khoá hiệu chỉnh riêng từng máy: "
+                                       "calib_distance_cm, camera_focal_px, camera_hfov_deg, calib_sec. "
+                                       "Nếu cấu hình hiệu lực của bất kỳ thành viên đã biết nào có cặp ngưỡng sai, "
+                                       "từ chối toàn bộ giao dịch với 400 VALIDATION_FAILED. "
+                                       "Trả các khoá tổ chức đã lưu. Sau commit, Config phát một event cấu hình "
+                                       "hiệu lực cho mỗi thành viên đã gọi Config; user khác nhận giá trị mới "
+                                       "khi gọi GET /config/me.",
+                        "requestBody": {"required": True, "content": {"application/json": {"schema": {
+                            "$ref": "#/components/schemas/Config"}}}},
+                        "responses": {"200": {"description": "Các khoá tổ chức đã lưu", "content": {"application/json": {
+                            "schema": {"$ref": "#/components/schemas/Config"}}}},
+                            "400": err(VALIDATION), "401": err("Chưa đăng nhập / token hết hạn"),
+                            "403": err(FORBIDDEN)}},
+            },
         },
         "components": {
             "securitySchemes": {"bearerAuth": {"type": "http", "scheme": "bearer", "bearerFormat": "JWT"}},
