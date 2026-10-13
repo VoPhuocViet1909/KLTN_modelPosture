@@ -1,4 +1,4 @@
-# Gói bàn giao API v1.3 – Desktop App → Backend
+# Gói bàn giao API v1.4 – Desktop App → Backend
 
 Thư mục này là **toàn bộ những gì backend cần** để làm phần nhận dữ liệu, không cần webcam hay chạy Desktop App.
 Kế hoạch chi tiết, lộ trình và các câu hỏi cần chốt nằm trong tài liệu "Kế hoạch bàn giao API".
@@ -9,7 +9,7 @@ Chỉ cần Python 3.9+ (thư viện chuẩn) để chạy các script; `tools/b
 
 | File | Dùng để |
 | --- | --- |
-| `openapi.yaml` | Đặc tả 14 thao tác trên 12 đường dẫn (OpenAPI 3.1, v1.3: gồm auth, quản lý tài khoản, telemetry, config, health). Mở bằng https://editor.swagger.io hoặc import vào Postman; sinh DTO / controller bằng openapi-generator |
+| `openapi.yaml` | Đặc tả OpenAPI 3.1 v1.4: auth, quản lý tài khoản, telemetry, config cá nhân/tổ chức, health. Mở bằng https://editor.swagger.io hoặc import vào Postman; sinh DTO / controller bằng openapi-generator |
 | `schemas/*.json` | **Nguồn chuẩn duy nhất** của dữ liệu: `event`, `metrics`, `batch`, `config` (JSON Schema 2020-12). Backend kiểm tra dữ liệu bằng chính các file này |
 | `mock_server.py` + `schema.py` | Server giả chạy đúng hợp đồng – để đối chiếu hành vi |
 | `contract_test.py` | 29 bài kiểm tra hợp đồng, chạy vào bất kỳ server nào. **Mốc M2 = đạt 100%** |
@@ -147,6 +147,15 @@ Các chỗ hợp đồng cũ đã sửa cho khớp backend:
 **`mock_server.py` CHƯA mô phỏng** `GET /auth/me`, `POST /auth/logout` và các endpoint `/users`. Frontend cần
 backend thật (auth-service qua Gateway; bật `SWAGGER_ENABLED=true` để thử trên Swagger UI) để thử các API này.
 `contract_test.py` cũng chưa kiểm chúng.
+
+## v1.3 → v1.4: cấu hình tổ chức
+
+- `GET /api/v1/config/me` và phản hồi `PUT /api/v1/config/me` trả các khóa hiệu lực: tổ chức trước, cá nhân ghi đè; `{}` khi chưa có khóa nào. Sự kiện Socket.IO `config` dùng cùng giá trị hiệu lực.
+- `GET/PUT /api/v1/config/org` chỉ dành cho `ORG_ADMIN` có `orgId`; `PUT` thay toàn bộ khóa tổ chức. Các khóa hiệu chỉnh riêng thiết bị bị từ chối.
+- Khi ghi ở bất kỳ tầng nào, backend kiểm tra cặp ngưỡng sau khi gộp. Nếu một thành viên đã biết có cấu hình hiệu lực sai, từ chối toàn bộ giao dịch bằng 400 `VALIDATION_FAILED`; không lưu một phía và không phát sự kiện. App cũng từ chối file cấu hình có cặp ngưỡng sai, giữ cấu hình đang chạy.
+- Với cặp khoảng cách, backend kiểm cả giá trị mặc định của app (`distance_on_cm=50`, `distance_off_cm=55`) nếu khóa chưa được ghi đè. Vì vậy tổ chức chỉ đặt `distance_on_cm=70` sẽ bị từ chối; cần đặt `distance_off_cm` hợp lệ cùng lúc.
+- Nếu người dùng được chuyển sang tổ chức có ngưỡng xung đột với tùy chỉnh cá nhân cũ, `GET /config/me` trả 400 `VALIDATION_FAILED` thay vì trả cấu hình sai; `PUT /config/me` với cặp ngưỡng hợp lệ (hoặc `{}` để bỏ tùy chỉnh) sẽ khôi phục truy cập.
+- Fanout hiện đến các thành viên đã gọi Config. Thành viên chưa từng gọi Config nhận giá trị tổ chức ở lần `GET /config/me` đầu; cần sự kiện thành viên từ Auth để fanout đầy đủ.
 
 ## v1.2 → v1.3: config và Socket.IO theo backend thật
 

@@ -91,6 +91,15 @@ class AppConfig:
             print("app_config.json lỗi, giữ cấu hình cũ:", e)
             return set()
         errs = validate("config", new)                # giá trị sai (âm, sai kiểu...) -> từ chối cả file
+        if not errs:
+            candidate = {**self.values, **{k: v for k, v in new.items() if k in DEFAULTS}}
+            if candidate["distance_off_cm"] < candidate["distance_on_cm"]:
+                errs.append("distance_off_cm must be >= distance_on_cm")
+            on, off = candidate["shoulder_tilt_on"], candidate["shoulder_tilt_off"]
+            on = self.model_cfg.get("shoulder_tilt_on") if on is None else on
+            off = self.model_cfg.get("shoulder_tilt_off") if off is None else off
+            if on is not None and off is not None and off > on:
+                errs.append("shoulder_tilt_off must be <= shoulder_tilt_on")
         if errs:
             print("app_config.json có giá trị không hợp lệ, giữ cấu hình cũ:", errs[:3])
             return set()

@@ -118,6 +118,15 @@ def test_eventlog_schema_and_config_reload():
     json.dump(data, open(path, "w", encoding="utf-8"))
     os.utime(path, (2_000_000_000, 2_000_000_000))
     assert cfg.reload() == {"alert_sec"} and cfg["alert_sec"] == 10
+    data["distance_on_cm"] = 70
+    json.dump(data, open(path, "w", encoding="utf-8"))
+    os.utime(path, (2_000_000_001, 2_000_000_001))
+    assert cfg.reload() == set() and cfg["distance_on_cm"] == 50
+    data["distance_on_cm"] = 50
+    data["shoulder_tilt_on"] = 2
+    json.dump(data, open(path, "w", encoding="utf-8"))
+    os.utime(path, (2_000_000_002, 2_000_000_002))
+    assert cfg.reload() == set() and cfg["shoulder_tilt_on"] == 3.5
 
 
 if __name__ == "__main__":
