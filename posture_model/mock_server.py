@@ -1,5 +1,5 @@
 """
-Server giả, làm đúng hợp đồng API v1.0 (xem api_handover/openapi.yaml), để:
+Server giả, làm đúng hợp đồng API v1.5 (xem api_handover/openapi.yaml), để:
   - phía Desktop App test gửi dữ liệu khi chưa có backend Spring Boot;
   - phía backend có một bản chạy được để đối chiếu (contract_test.py chạy vào mock phải đạt 100%).
 
@@ -9,7 +9,7 @@ Server giả, làm đúng hợp đồng API v1.0 (xem api_handover/openapi.yaml)
   python mock_server.py --fail-rate 0.3      # 30% request gửi dữ liệu trả 503 để thử gửi lại
   python mock_server.py --host 0.0.0.0       # cho máy khác trong mạng LAN gọi vào
 
-Tài khoản demo: demo@kltn.local / 123456
+Tài khoản demo: demo@kltn.local / 123456 (USER), admin@kltn.local / 123456 (ORG_ADMIN, cùng tổ chức org_demo)
 
 Endpoint:
   GET  /api/v1/health                 -> {"status": "UP"}                       (không cần JWT)
@@ -18,7 +18,16 @@ Endpoint:
   POST /api/v1/telemetry/batch        -> {accepted, rejected, duplicates}
   GET  /api/v1/config/me              -> cấu hình riêng của người dùng (chỉ các khoá khác mặc định)
   PUT  /api/v1/config/me              -> lưu cấu hình (kiểm tra theo config.schema.json)
+  GET  /api/v1/alerts/me              -> lịch sử cảnh báo của người gọi {items, page, size, total}
+  GET  /api/v1/alerts/me/sessions     -> các phiên làm việc, kèm alertCount
+  GET  /api/v1/alerts/org             -> lịch sử cảnh báo cả tổ chức (ORG_ADMIN)
+  GET  /api/v1/stats/me/summary       -> {meanScore, badMinutes, presenceMinutes, alerts}
+  GET  /api/v1/stats/me/timeseries    -> [{start, meanScore, badMinutes, presenceMinutes, alerts}] theo giờ / ngày
+  GET  /api/v1/stats/me/heatmap       -> 168 ô {weekday, hour, meanScore} (giờ Việt Nam)
+  GET  /api/v1/stats/org/summary      -> như summary, cho cả tổ chức (ORG_ADMIN)
   GET  /api/v1/stats                  -> (chỉ mock) đếm số sự kiện / metrics đã nhận
+Lịch sử và thống kê tính lại từ dữ liệu đã nhận (history.py), cùng quy tắc với backend. Lỗi của các endpoint này
+dùng body chuẩn {code, message, traceId, errors}; các endpoint cũ vẫn trả {error}.
   GET  /live                          -> (chỉ mock) trang web xem trực tiếp dữ liệu nhận được
 Realtime Socket.IO (/socket.io/, xem README api_handover) KHÔNG có trong mock.
 Dữ liệu nhận được ghi vào mock_data/events.jsonl và mock_data/metrics.jsonl (đã bỏ trùng theo id).
@@ -34,11 +43,18 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+from urllib.parse import parse_qs, urlsplit
+
+import history
 from schema import validate
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DEMO_USERS = {"demo@kltn.local": {"password": "123456", "id": "u_demo", "name": "Demo User",
-                                  "orgId": "org_demo", "role": "USER"}}
+                                  "orgId": "org_demo", "role": "USER"},
+              "admin@kltn.local": {"password": "123456", "id": "u_admin", "name": "Demo Org Admin",
+                                   "orgId": "org_demo", "role": "ORG_ADMIN"}}
+USERS_BY_ID = {u["id"]: u for u in DEMO_USERS.values()}
+USERS_BY_ID["u_static"] = {"id": "u_static", "orgId": None, "role": "USER"}   # người gọi bằng --token
 ACCESS_TTL = 3600
 MAX_ITEMS = 500
 
@@ -67,15 +83,17 @@ class Store:
         self.refresh = {}       # refreshToken -> userId
         self.configs = {}       # userId -> dict
         self.recent = collections.deque(maxlen=200)   # mục mới nhận, cho trang xem trực tiếp
-        for name in ("events", "metrics"):           # nạp id cũ để chống trùng cả khi khởi động lại server
+        self.rows = {"events": [], "metrics": []}    # mọi mục đã nhận (kèm _receivedUserId), cho /alerts và /stats
+        for name in ("events", "metrics"):           # nạp dữ liệu cũ để chống trùng cả khi khởi động lại server
             p = os.path.join(folder, f"{name}.jsonl")
             if os.path.exists(p):
                 for line in open(p, encoding="utf-8"):
                     try:
                         d = json.loads(line)
-                        self.seen.add(d.get("eventId") or d.get("metricId"))
                     except ValueError:
-                        pass
+                        continue
+                    self.seen.add(d.get("eventId") or d.get("metricId"))
+                    self.rows[name].append(d)
 
     def add(self, kind, item, user_id):
         key = item.get("eventId") if kind == "events" else item.get("metricId")
@@ -86,6 +104,7 @@ class Store:
             row = dict(item, _receivedUserId=user_id, _receivedAt=time.time())
             with open(os.path.join(self.folder, f"{kind}.jsonl"), "a", encoding="utf-8") as f:
                 f.write(json.dumps(row, ensure_ascii=False) + "\n")
+            self.rows[kind].append(row)
             if kind == "events":
                 self.by_type[item.get("eventType")] += 1
             else:
@@ -167,8 +186,44 @@ def make_handler(store, static_token, require_auth, fail_rate, quiet):
                 return None, "thiếu hoặc sai JWT"
             return None, None
 
+        def _error(self, code, err, message, errors=()):
+            return self._json(code, {"code": err, "message": message, "traceId": None, "errors": list(errors)})
+
+        def _history(self, path, query):
+            """/api/v1/alerts/* và /api/v1/stats/* (trừ /api/v1/stats của riêng mock)."""
+            uid, err = self._user()
+            if err or uid is None:
+                return self._error(401, "AUTH_TOKEN_MISSING", "Authentication required.")
+            caller = USERS_BY_ID.get(uid, {"id": uid, "orgId": None, "role": "USER"})
+            org_paths = ("/api/v1/alerts/org", "/api/v1/stats/org/summary")
+            if path in org_paths and (caller["role"] != "ORG_ADMIN" or not caller["orgId"]):
+                return self._error(403, "AUTH_FORBIDDEN", "You are not allowed to view this data.")
+            members = {u for u, info in USERS_BY_ID.items() if info["orgId"] == caller["orgId"]}
+            now = history.datetime.now(history.timezone.utc)
+            with store.lock:
+                events, metrics = list(store.rows["events"]), list(store.rows["metrics"])
+            routes = {
+                "/api/v1/alerts/me": lambda: history.alerts_page(events, metrics, now, query, {uid}),
+                "/api/v1/alerts/me/sessions": lambda: history.sessions_page(events, metrics, now, query, uid),
+                "/api/v1/alerts/org": lambda: history.alerts_page(events, metrics, now, query, members),
+                "/api/v1/stats/me/summary": lambda: history.summary(metrics, now, query, {uid}),
+                "/api/v1/stats/me/timeseries": lambda: history.timeseries(metrics, now, query, uid),
+                "/api/v1/stats/me/heatmap": lambda: history.heatmap(metrics, now, query, uid),
+                "/api/v1/stats/org/summary": lambda: history.summary(metrics, now, query, members),
+            }
+            if path not in routes:
+                return self._error(404, "HTTP_404", "Request failed.")
+            try:
+                return self._json(200, routes[path]())
+            except history.QueryError as e:
+                return self._error(400, "VALIDATION_FAILED", "Invalid query.",
+                                   [{"field": e.field, "message": str(e)}])
+
         # ------------------------------------------------------------------ GET
         def do_GET(self):
+            url = urlsplit(self.path)
+            if url.path.startswith(("/api/v1/alerts/", "/api/v1/stats/")):
+                return self._history(url.path, parse_qs(url.query))
             if self.path == "/api/v1/health":
                 return self._json(200, {"status": "UP"})
             if self.path in ("/", "/live"):

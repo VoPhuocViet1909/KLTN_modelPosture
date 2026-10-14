@@ -1,5 +1,5 @@
 """
-Kiểm tra một server có làm ĐÚNG hợp đồng API v1.0 không (chạy được vào mock_server.py hoặc backend Spring).
+Kiểm tra một server có làm ĐÚNG hợp đồng API v1.5 không (chạy được vào mock_server.py hoặc backend Spring).
 Chỉ cần Python 3.9+ (thư viện chuẩn).
 
   python contract_test.py --base http://127.0.0.1:8080 --email demo@kltn.local --password 123456
@@ -16,7 +16,9 @@ import sys
 import time
 import urllib.error
 import urllib.request
+import urllib.parse
 import uuid
+from datetime import timedelta
 
 from payloads import Device
 
@@ -192,21 +194,117 @@ def t_config(c, a):
     check("config", "GET /config/me không JWT -> 401", s == 401, (s, b))
 
 
+ALERT_KEYS = {"userId", "deviceId", "sessionId", "alertType", "severity", "startedAt", "endedAt", "durationSec",
+              "endReason", "repeatCount", "open"}
+SESSION_KEYS = {"deviceId", "sessionId", "startedAt", "endedAt", "endReason", "lastSeenAt", "open", "alertCount"}
+STATS_KEYS = {"meanScore", "badMinutes", "presenceMinutes", "alerts"}
+
+
+def _q(**params):
+    return "?" + urllib.parse.urlencode(params)
+
+
+def _wait(c, path, found, seconds=20):
+    """Backend ghi qua Kafka nên dữ liệu đến sau vài giây: hỏi lại tới khi found(body) đúng."""
+    deadline = time.time() + seconds
+    while True:
+        s, b, _ = c.call("GET", path)
+        if s == 200 and found(b):
+            return s, b
+        if time.time() > deadline:
+            return s, b
+        time.sleep(1)
+
+
+def t_history(c, a):
+    """/alerts/* (alert-service) và /stats/* (analytics-service), v1.5."""
+    if a.no_auth:
+        print("  (bỏ qua: --no-auth)")
+        return
+    dev = Device(seed=11)
+    now = _now()
+    t0 = now - timedelta(minutes=10)
+    events = [dev.session_start(t0)] + dev.alert_pair(t0 + timedelta(minutes=1), 30)
+    open_alert = dev.alert_pair(t0 + timedelta(minutes=5), 20, alert_type="TOO_CLOSE")[0]
+    metric = dev.metric(now, bad_ratio=0.25, alerts={"NECK_TRUNK": 1})
+    s, b, _ = c.call("POST", "/api/v1/telemetry/batch", dev.batch(events + [open_alert], [metric]))
+    if not check("history", "gửi phiên + 2 cảnh báo + 1 metrics -> 200", s == 200, (s, b)):
+        return
+    rng = _q(**{"from": (now - timedelta(hours=1)).isoformat(), "to": (now + timedelta(minutes=1)).isoformat()})
+
+    def mine(body):
+        return [i for i in (body or {}).get("items", []) if i.get("sessionId") == dev.session_id]
+    s, b = _wait(c, "/api/v1/alerts/me" + rng, lambda body: len(mine(body)) == 2)
+    check("history", "GET /alerts/me -> 200 {items, page, size, total}",
+          s == 200 and isinstance(b, dict) and {"items", "page", "size", "total"} <= set(b), (s, b))
+    items = mine(b)
+    check("history", "thấy đúng 2 cảnh báo vừa gửi, đủ trường", len(items) == 2
+          and all(ALERT_KEYS <= set(i) for i in items), items)
+    if len(items) == 2:
+        newest, older = items
+        check("history", "mới nhất trước; cảnh báo chưa resolve còn mở",
+              newest["alertType"] == "TOO_CLOSE" and newest["open"] is True and newest["endedAt"] is None, newest)
+        check("history", "cảnh báo đã resolve: endReason CORRECTED, durationSec 30",
+              older["endReason"] == "CORRECTED" and older["durationSec"] == 30 and older["open"] is False, older)
+    s, b = _wait(c, "/api/v1/alerts/me" + rng + "&alertType=TOO_CLOSE", lambda body: len(mine(body)) == 1, 5)
+    check("history", "lọc alertType=TOO_CLOSE", s == 200 and [i["alertType"] for i in mine(b)] == ["TOO_CLOSE"], b)
+    s, b = _wait(c, "/api/v1/alerts/me/sessions" + rng, lambda body: len(mine(body)) == 1, 5)
+    sess = mine(b)
+    check("history", "GET /alerts/me/sessions: phiên đang mở, alertCount = 2", len(sess) == 1
+          and SESSION_KEYS <= set(sess[0]) and sess[0]["open"] is True and sess[0]["alertCount"] == 2, (s, b))
+    for path, field in (("/api/v1/alerts/me?size=0", "size"), ("/api/v1/alerts/me?from=hom-qua", "from")):
+        s, b, _ = c.call("GET", path)
+        check("history", f"{path} -> 400 VALIDATION_FAILED, errors[0].field = {field}",
+              s == 400 and isinstance(b, dict) and b.get("code") == "VALIDATION_FAILED"
+              and (b.get("errors") or [{}])[0].get("field") == field, (s, b))
+    s, b, _ = c.call("GET", "/api/v1/alerts/me", auth=False)
+    check("history", "GET /alerts/me không JWT -> 401", s == 401, (s, b))
+
+    s, b = _wait(c, "/api/v1/stats/me/summary" + rng,
+                 lambda body: isinstance(body, dict) and (body.get("presenceMinutes") or 0) >= 1)
+    check("history", "GET /stats/me/summary -> {meanScore, badMinutes, presenceMinutes, alerts}",
+          s == 200 and isinstance(b, dict) and STATS_KEYS <= set(b), (s, b))
+    check("history", "summary đã tính metrics vừa gửi (presenceMinutes >= 1, alerts.NECK_TRUNK >= 1)",
+          isinstance(b, dict) and (b.get("presenceMinutes") or 0) >= 1
+          and (b.get("alerts") or {}).get("NECK_TRUNK", 0) >= 1, b)
+    s, b, _ = c.call("GET", "/api/v1/stats/me/timeseries" + rng + "&bucket=hour")
+    check("history", "GET /stats/me/timeseries?bucket=hour -> mảng {start, ...}",
+          s == 200 and isinstance(b, list) and b and all({"start"} | STATS_KEYS <= set(x) for x in b), (s, b))
+    s, b, _ = c.call("GET", "/api/v1/stats/me/timeseries?bucket=week")
+    check("history", "bucket=week -> 400 VALIDATION_FAILED", s == 400 and (b or {}).get("code") == "VALIDATION_FAILED",
+          (s, b))
+    s, b, _ = c.call("GET", "/api/v1/stats/me/heatmap")
+    check("history", "GET /stats/me/heatmap -> 168 ô {weekday 1..7, hour 0..23, meanScore}",
+          s == 200 and isinstance(b, list) and len(b) == 168
+          and {(x.get("weekday"), x.get("hour")) for x in b} == {(d, h) for d in range(1, 8) for h in range(24)},
+          (s, b if not isinstance(b, list) else len(b)))
+    s, b, _ = c.call("GET", "/api/v1/stats/me/heatmap?weeks=13")
+    check("history", "heatmap weeks=13 -> 400", s == 400, (s, b))
+    if a.role_user:
+        for path in ("/api/v1/alerts/org", "/api/v1/stats/org/summary"):
+            s, b, _ = c.call("GET", path)
+            check("history", f"{path} với role USER -> 403 AUTH_FORBIDDEN",
+                  s == 403 and (b or {}).get("code") == "AUTH_FORBIDDEN", (s, b))
+
+
 def _now():
     from datetime import datetime, timezone
     return datetime.now(timezone.utc)
 
 
-GROUPS = {"health": t_health, "auth": t_auth, "batch": t_batch, "errors": t_errors, "perf": t_perf, "config": t_config}
+GROUPS = {"health": t_health, "auth": t_auth, "batch": t_batch, "errors": t_errors, "perf": t_perf, "config": t_config,
+          "history": t_history}
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Kiểm tra hợp đồng API v1.0")
+    ap = argparse.ArgumentParser(description="Kiểm tra hợp đồng API v1.5")
     ap.add_argument("--base", default="http://127.0.0.1:8080")
     ap.add_argument("--email")
     ap.add_argument("--password")
     ap.add_argument("--token", help="JWT có sẵn (thay cho --email/--password)")
     ap.add_argument("--no-auth", action="store_true", help="server chưa làm JWT: bỏ qua nhóm auth, config")
+    ap.add_argument("--not-user", dest="role_user", action="store_false",
+                    help="tài khoản kiểm tra là ORG_ADMIN/SYS_ADMIN: bỏ 2 bài 403 của /org")
     ap.add_argument("--only", nargs="*", choices=list(GROUPS), help="chỉ chạy các nhóm này")
     ap.add_argument("--report", help="ghi kết quả ra file JSON")
     a = ap.parse_args()
@@ -214,7 +312,11 @@ def main():
         ap.error("cần --email + --password, hoặc --token, hoặc --no-auth")
 
     c = Client(a.base, a.token)
-    print(f"Kiểm tra hợp đồng API v1.0 tại {a.base}  (run {uuid.uuid4().hex[:6]})")
+    if not a.token and a.email and a.password:     # để --only config / history chạy được mà không cần nhóm auth
+        s, b, _ = c.call("POST", "/api/v1/auth/login", {"email": a.email, "password": a.password}, auth=False)
+        if s == 200 and isinstance(b, dict):
+            c.token = b.get("accessToken")
+    print(f"Kiểm tra hợp đồng API v1.5 tại {a.base}  (run {uuid.uuid4().hex[:6]})")
     for name, fn in GROUPS.items():
         if a.only and name not in a.only:
             continue

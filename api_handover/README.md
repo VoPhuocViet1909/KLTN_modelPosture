@@ -1,4 +1,4 @@
-# Gói bàn giao API v1.4 – Desktop App → Backend
+# Gói bàn giao API v1.5 – Desktop App → Backend
 
 Thư mục này là **toàn bộ những gì backend cần** để làm phần nhận dữ liệu, không cần webcam hay chạy Desktop App.
 Kế hoạch chi tiết, lộ trình và các câu hỏi cần chốt nằm trong tài liệu "Kế hoạch bàn giao API".
@@ -9,10 +9,10 @@ Chỉ cần Python 3.9+ (thư viện chuẩn) để chạy các script; `tools/b
 
 | File | Dùng để |
 | --- | --- |
-| `openapi.yaml` | Đặc tả OpenAPI 3.1 v1.4: auth, quản lý tài khoản, telemetry, config cá nhân/tổ chức, health. Mở bằng https://editor.swagger.io hoặc import vào Postman; sinh DTO / controller bằng openapi-generator |
+| `openapi.yaml` | Đặc tả OpenAPI 3.1 v1.5: auth, quản lý tài khoản, telemetry, config cá nhân/tổ chức, lịch sử cảnh báo, thống kê Dashboard, health. Mở bằng https://editor.swagger.io hoặc import vào Postman; sinh DTO / controller bằng openapi-generator |
 | `schemas/*.json` | **Nguồn chuẩn duy nhất** của dữ liệu: `event`, `metrics`, `batch`, `config` (JSON Schema 2020-12). Backend kiểm tra dữ liệu bằng chính các file này |
-| `mock_server.py` + `schema.py` | Server giả chạy đúng hợp đồng – để đối chiếu hành vi |
-| `contract_test.py` | 29 bài kiểm tra hợp đồng, chạy vào bất kỳ server nào. **Mốc M2 = đạt 100%** |
+| `mock_server.py` + `schema.py` + `history.py` | Server giả chạy đúng hợp đồng – để đối chiếu hành vi; có cả `/alerts/*` và `/stats/*` tính từ dữ liệu đã nhận (Dashboard dùng thử được khi chưa có backend). `python test_history.py`: 4 test |
+| `contract_test.py` | 47 bài kiểm tra hợp đồng, chạy vào bất kỳ server nào. **Mốc M2 = đạt 100%** |
 | `replay.py` | `seed`: sinh lịch sử nhiều ngày để làm Dashboard · `load`: kiểm thử tải N máy |
 | `payloads.py` | Bộ sinh dữ liệu hợp lệ, dùng chung cho 2 script trên |
 | `sample_data/p01_*.jsonl` | Dữ liệu THẬT từ app chạy trên video người tham gia P01 (9 sự kiện, 4 metrics) |
@@ -24,7 +24,7 @@ Chỉ cần Python 3.9+ (thư viện chuẩn) để chạy các script; `tools/b
 # 1. chạy server giả (bắt buộc đăng nhập như server thật)
 python mock_server.py --require-login            # http://127.0.0.1:8080, tài khoản demo@kltn.local / 123456
 
-# 2. chạy bộ kiểm tra hợp đồng vào server giả -> phải 29/29
+# 2. chạy bộ kiểm tra hợp đồng vào server giả -> phải 47/47
 python contract_test.py --base http://127.0.0.1:8080 --email demo@kltn.local --password 123456
 
 # 3. khi server Spring của bạn chạy: đổi --base, sửa tới khi đạt 100%
@@ -147,6 +147,36 @@ Các chỗ hợp đồng cũ đã sửa cho khớp backend:
 **`mock_server.py` CHƯA mô phỏng** `GET /auth/me`, `POST /auth/logout` và các endpoint `/users`. Frontend cần
 backend thật (auth-service qua Gateway; bật `SWAGGER_ENABLED=true` để thử trên Swagger UI) để thử các API này.
 `contract_test.py` cũng chưa kiểm chúng.
+
+## v1.4 → v1.5: lịch sử cảnh báo
+
+Thêm 3 endpoint của alert-service (không đổi `schemas/*.json`, không đổi gì phía app):
+
+| Endpoint | Quyền | Trả về |
+| --- | --- | --- |
+| `GET /api/v1/alerts/me?from&to&alertType&page&size` | mọi role | các lần cảnh báo của người gọi, mới nhất trước |
+| `GET /api/v1/alerts/me/sessions?from&to&page&size` | mọi role | các phiên làm việc, kèm `alertCount` |
+| `GET /api/v1/alerts/org?from&to&alertType&page&size` | ORG_ADMIN có `orgId` | các lần cảnh báo của mọi thành viên |
+
+- Danh sách dạng `{items, page, size, total}` như `/users`; `size` 1–100 (mặc định 20); `from`/`to` mặc định 7 ngày gần nhất, tối đa 92 ngày.
+- Mỗi lần cảnh báo: `{userId, deviceId, sessionId, alertType, severity, startedAt, endedAt, durationSec, endReason, repeatCount, open}`. Cảnh báo không có `ALERT_RESOLVED` (app tắt giữa chừng) kết thúc cùng phiên với `endReason` `SESSION_END` hoặc `SESSION_TIMEOUT`.
+- **Phiên tự đóng:** app không gửi được `SESSION_END` khi bị tắt đột ngột, nên backend đóng phiên sau 3 phút không có dữ liệu (`endReason` `TIMEOUT`, `endedAt` = lúc có dữ liệu cuối). Nếu app chỉ mất mạng rồi gửi bù dữ liệu mới hơn, phiên mở lại. App không cần làm gì thêm.
+- Lỗi: 400 `VALIDATION_FAILED` (trường sai trong `errors`), 401, 403 `AUTH_FORBIDDEN` với `/org`.
+
+Thống kê cho Dashboard (analytics-service), cùng tham số `from` / `to`:
+
+| Endpoint | Quyền | Trả về |
+| --- | --- | --- |
+| `GET /api/v1/stats/me/summary?from&to` | mọi role | `{meanScore, badMinutes, presenceMinutes, alerts}` |
+| `GET /api/v1/stats/me/timeseries?from&to&bucket=hour\|day` | mọi role | mảng `{start, meanScore, badMinutes, presenceMinutes, alerts}`, chỉ khung có dữ liệu |
+| `GET /api/v1/stats/me/heatmap?weeks=1..12` | mọi role | đúng 168 ô `{weekday 1..7, hour 0..23, meanScore}` |
+| `GET /api/v1/stats/org/summary?from&to` | ORG_ADMIN có `orgId` | như summary, gộp cả tổ chức |
+
+- `meanScore` là trung bình `postureScore` có trọng số theo `presenceSec` (null khi không có dữ liệu); `badMinutes` = Σ(1 − goodRatio) × presenceSec / 60.
+- Ngày (`bucket=day`) và heatmap tính theo **giờ Việt Nam**: `start` `2026-10-13T17:00:00Z` là ngày 14/10.
+- Mốc thời gian trong query string phải mã hoá URL: `+07:00` viết `%2B07:00` (dùng `encodeURIComponent` / `URLSearchParams`), nếu không dấu `+` thành dấu cách và bị 400.
+
+**Server giả và bộ kiểm tra:** `mock_server.py` trả được cả 7 endpoint trên, tính lại từ dữ liệu đã nhận theo cùng quy tắc với backend (đã đối chiếu với câu SQL của analytics-service). Thêm tài khoản `admin@kltn.local` / `123456` (ORG_ADMIN, cùng tổ chức với `demo@kltn.local`) để thử `/org`. Lỗi của các endpoint mới dùng body chuẩn `{code, message, traceId, errors}`. `contract_test.py` thêm nhóm `history` (18 bài); với backend thật nhóm này chờ tối đa 20 giây cho dữ liệu đi qua Kafka. Tài khoản kiểm tra không phải USER thì thêm `--not-user` để bỏ 2 bài 403.
 
 ## v1.3 → v1.4: cấu hình tổ chức
 
