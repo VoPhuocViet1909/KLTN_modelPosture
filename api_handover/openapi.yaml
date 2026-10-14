@@ -2,10 +2,14 @@
 openapi: 3.1.0
 info:
   title: Posture Monitor – API giữa Desktop App và Backend
-  version: 1.4.0
-  description: 'Thay đổi v1.4: thêm `GET/PUT /config/org` cho ORG_ADMIN; `GET /config/me`, phản hồi PUT và sự kiện
-    Socket.IO `config` trả cấu hình hiệu lực sau khi gộp tổ chức rồi cá nhân. Notification đã gửi sự kiện `status`
-    từ telemetry.
+  version: 1.5.0
+  description: 'Thay đổi v1.5: thêm lịch sử cảnh báo (alert-service): `GET /alerts/me`, `GET /alerts/me/sessions`,
+    `GET /alerts/org` (ORG_ADMIN). Phiên không có `SESSION_END` tự đóng sau 3 phút không có dữ liệu (`endReason`
+    `TIMEOUT`) và mở lại nếu dữ liệu mới hơn đến muộn.
+
+
+    Thay đổi v1.4: thêm `GET/PUT /config/org` cho ORG_ADMIN; `GET /config/me`, phản hồi PUT và sự kiện Socket.IO
+    `config` trả cấu hình hiệu lực sau khi gộp tổ chức rồi cá nhân. Notification đã gửi sự kiện `status` từ telemetry.
 
 
     Thay đổi v1.3: `PUT /config/me` ghi rõ là thay toàn bộ cấu hình và các quy tắc kiểm tra (khoá lạ, `api_token`/`api_base_url`
@@ -19,7 +23,7 @@ info:
     mã lỗi; `MANAGER` -> `ORG_ADMIN`.
 
 
-    Hợp đồng API v1.4 giữa Desktop App (edge), Web Dashboard và backend microservice.
+    Hợp đồng API v1.5 giữa Desktop App (edge), Web Dashboard và backend microservice.
 
 
     - Thời gian: ISO-8601 UTC (`...Z`). Body: JSON UTF-8.
@@ -89,7 +93,7 @@ info:
     | `HTTP_<mã>` | 4xx | Lỗi khung chung, ví dụ `HTTP_405`, `HTTP_415` |
 
 
-    Các endpoint khác (telemetry, config) có thể trả thêm mã riêng, mô tả ở từng endpoint. `503 AUTH_UNAVAILABLE`
+    Các endpoint khác (telemetry, config, alerts) có thể trả thêm mã riêng, mô tả ở từng endpoint. `503 AUTH_UNAVAILABLE`
     do Gateway trả khi tạm thời không lấy được khóa kiểm token.'
 servers:
 - url: http://127.0.0.1:8080
@@ -99,6 +103,7 @@ tags:
 - name: auth
 - name: users
 - name: config
+- name: alerts
 - name: system
 paths:
   /api/v1/health:
@@ -768,6 +773,156 @@ paths:
                 $ref: '#/components/schemas/Error'
         '401':
           description: Chưa đăng nhập / token hết hạn
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: '`AUTH_FORBIDDEN`: role không đủ quyền hoặc vi phạm quy tắc phạm vi'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/v1/alerts/me:
+    get:
+      tags:
+      - alerts
+      summary: Lịch sử cảnh báo của người gọi
+      description: 'Mọi role. Các lần cảnh báo (mỗi cặp ALERT_STARTED…ALERT_RESOLVED là một mục) bắt đầu trong khoảng
+        `[from, to)`, mới nhất trước. Cảnh báo không có `ALERT_RESOLVED` (app tắt giữa chừng) kết thúc cùng phiên:
+        `endedAt` là lúc phiên kết thúc, `endReason` là `SESSION_END` hoặc `SESSION_TIMEOUT`.'
+      parameters:
+      - &id002
+        name: from
+        in: query
+        required: false
+        description: ISO-8601 có offset. Mặc định `to` − 7 ngày
+        schema:
+          type: string
+          format: date-time
+      - &id003
+        name: to
+        in: query
+        required: false
+        description: 'ISO-8601 có offset, không gồm mốc này. Mặc định: bây giờ. Khoảng tối đa 92 ngày'
+        schema:
+          type: string
+          format: date-time
+      - &id006
+        name: alertType
+        in: query
+        required: false
+        description: Chỉ lấy một loại cảnh báo
+        schema:
+          type: string
+          examples:
+          - NECK_TRUNK
+      - &id004
+        name: page
+        in: query
+        required: false
+        description: Trang, bắt đầu từ 0 (tối đa 10000)
+        schema:
+          type: integer
+          minimum: 0
+          maximum: 10000
+          default: 0
+      - &id005
+        name: size
+        in: query
+        required: false
+        description: Số mục mỗi trang
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 20
+      responses:
+        '200':
+          description: Một trang cảnh báo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AlertPage'
+        '400':
+          description: '`VALIDATION_FAILED`: `from`/`to` sai định dạng, khoảng không dương hoặc quá 92 ngày, `alertType`,
+            `page` hoặc `size` sai; trường sai nằm trong `errors`'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Thiếu / sai / hết hạn token (`AUTH_TOKEN_MISSING`, `AUTH_TOKEN_INVALID`, `AUTH_TOKEN_EXPIRED`
+            từ Gateway).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/v1/alerts/me/sessions:
+    get:
+      tags:
+      - alerts
+      summary: Các phiên làm việc của người gọi
+      description: Mọi role. Phiên giao với khoảng `[from, to)`, mới nhất trước, kèm số cảnh báo. Phiên đóng bằng
+        `SESSION_END` từ app, hoặc `TIMEOUT` khi 3 phút không có dữ liệu (app bị tắt, máy ngủ). Phiên `TIMEOUT`
+        mở lại nếu sau đó đến dữ liệu mới hơn (app gửi bù khi có mạng lại).
+      parameters:
+      - *id002
+      - *id003
+      - *id004
+      - *id005
+      responses:
+        '200':
+          description: Một trang phiên
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AlertSessionPage'
+        '400':
+          description: '`VALIDATION_FAILED`: `from`/`to` sai định dạng, khoảng không dương hoặc quá 92 ngày, `alertType`,
+            `page` hoặc `size` sai; trường sai nằm trong `errors`'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Thiếu / sai / hết hạn token (`AUTH_TOKEN_MISSING`, `AUTH_TOKEN_INVALID`, `AUTH_TOKEN_EXPIRED`
+            từ Gateway).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/v1/alerts/org:
+    get:
+      tags:
+      - alerts
+      summary: Lịch sử cảnh báo của cả tổ chức
+      description: 'Chỉ ORG_ADMIN có orgId. Như `GET /alerts/me` nhưng gồm mọi thành viên; tổ chức của một phiên
+        lấy theo `orgId` trong dữ liệu app gửi. Cảnh báo không có `ALERT_RESOLVED` (app tắt giữa chừng) kết thúc
+        cùng phiên: `endedAt` là lúc phiên kết thúc, `endReason` là `SESSION_END` hoặc `SESSION_TIMEOUT`.'
+      parameters:
+      - *id002
+      - *id003
+      - *id006
+      - *id004
+      - *id005
+      responses:
+        '200':
+          description: Một trang cảnh báo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AlertPage'
+        '400':
+          description: '`VALIDATION_FAILED`: `from`/`to` sai định dạng, khoảng không dương hoặc quá 92 ngày, `alertType`,
+            `page` hoặc `size` sai; trường sai nằm trong `errors`'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Thiếu / sai / hết hạn token (`AUTH_TOKEN_MISSING`, `AUTH_TOKEN_INVALID`, `AUTH_TOKEN_EXPIRED`
+            từ Gateway).
           content:
             application/json:
               schema:
@@ -1561,6 +1716,142 @@ components:
         enabled:
           type: boolean
           description: false = khóa và thu hồi mọi refresh token
+    AlertItem:
+      type: object
+      required:
+      - userId
+      - deviceId
+      - sessionId
+      - alertType
+      - startedAt
+      - repeatCount
+      - open
+      properties:
+        userId:
+          type: string
+          format: uuid
+        deviceId:
+          type: string
+        sessionId:
+          type: string
+        alertType:
+          type: string
+          description: như `alertType` của sự kiện, ví dụ `NECK_TRUNK`
+        severity:
+          type:
+          - string
+          - 'null'
+          enum:
+          - LOW
+          - MEDIUM
+          - HIGH
+          - null
+          description: mức mới nhất đã nhận
+        startedAt:
+          type: string
+          format: date-time
+        endedAt:
+          type:
+          - string
+          - 'null'
+          format: date-time
+          description: null khi còn đang mở
+        durationSec:
+          type:
+          - integer
+          - 'null'
+          description: endedAt − startedAt, giây
+        endReason:
+          type:
+          - string
+          - 'null'
+          description: '`reason` của ALERT_RESOLVED (`CORRECTED`, `AWAY`, `RECALIBRATE`, `SESSION_END`, `RESET`),
+            hoặc `SESSION_END` / `SESSION_TIMEOUT` khi cảnh báo kết thúc cùng phiên; null khi còn mở'
+        repeatCount:
+          type: integer
+          minimum: 0
+          description: số lần ALERT_REPEATED
+        open:
+          type: boolean
+          description: true khi cả cảnh báo và phiên còn mở
+    AlertPage:
+      type: object
+      required:
+      - items
+      - page
+      - size
+      - total
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AlertItem'
+        page:
+          type: integer
+        size:
+          type: integer
+        total:
+          type: integer
+          description: tổng số mục khớp bộ lọc
+    AlertSession:
+      type: object
+      required:
+      - deviceId
+      - sessionId
+      - lastSeenAt
+      - open
+      - alertCount
+      properties:
+        deviceId:
+          type: string
+        sessionId:
+          type: string
+        startedAt:
+          type:
+          - string
+          - 'null'
+          format: date-time
+          description: null khi chưa nhận SESSION_START
+        endedAt:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        endReason:
+          type:
+          - string
+          - 'null'
+          enum:
+          - SESSION_END
+          - TIMEOUT
+          - null
+        lastSeenAt:
+          type: string
+          format: date-time
+          description: thời điểm (theo `ts` của app) của dữ liệu mới nhất
+        open:
+          type: boolean
+        alertCount:
+          type: integer
+          minimum: 0
+    AlertSessionPage:
+      type: object
+      required:
+      - items
+      - page
+      - size
+      - total
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AlertSession'
+        page:
+          type: integer
+        size:
+          type: integer
+        total:
+          type: integer
     LogoutRequest:
       type: object
       required:

@@ -48,6 +48,23 @@ SCOPE = ("Phạm vi: ORG_ADMIN chỉ thấy và sửa user cùng tổ chức, us
 SELF = "Admin không được tự đổi role hay tự khóa chính mình (403)."
 RAISE = ("Nâng role chỉ có hiệu lực sau khi user đăng nhập lại (token cũ vẫn mang role cũ); hạ role có hiệu lực "
          "ngay với các API quản lý tài khoản.")
+HISTORY_RANGE = [
+    {"name": "from", "in": "query", "required": False,
+     "description": "ISO-8601 có offset. Mặc định `to` − 7 ngày", "schema": {"type": "string", "format": "date-time"}},
+    {"name": "to", "in": "query", "required": False,
+     "description": "ISO-8601 có offset, không gồm mốc này. Mặc định: bây giờ. Khoảng tối đa 92 ngày",
+     "schema": {"type": "string", "format": "date-time"}}]
+HISTORY_PAGE = [
+    {"name": "page", "in": "query", "required": False, "description": "Trang, bắt đầu từ 0 (tối đa 10000)",
+     "schema": {"type": "integer", "minimum": 0, "maximum": 10000, "default": 0}},
+    {"name": "size", "in": "query", "required": False, "description": "Số mục mỗi trang",
+     "schema": {"type": "integer", "minimum": 1, "maximum": 100, "default": 20}}]
+ALERT_TYPE = {"name": "alertType", "in": "query", "required": False, "description": "Chỉ lấy một loại cảnh báo",
+              "schema": {"type": "string", "examples": ["NECK_TRUNK"]}}
+HISTORY_400 = ("`VALIDATION_FAILED`: `from`/`to` sai định dạng, khoảng không dương hoặc quá 92 ngày, `alertType`, "
+               "`page` hoặc `size` sai; trường sai nằm trong `errors`")
+ENDED_WITH_SESSION = ("Cảnh báo không có `ALERT_RESOLVED` (app tắt giữa chừng) kết thúc cùng phiên: `endedAt` là lúc "
+                      "phiên kết thúc, `endReason` là `SESSION_END` hoặc `SESSION_TIMEOUT`.")
 USER_ID = {"name": "id", "in": "path", "required": True, "description": "Id người dùng (UUID)",
            "schema": {"type": "string", "format": "uuid"}}
 
@@ -74,8 +91,11 @@ def main():
         "openapi": "3.1.0",
         "info": {
             "title": "Posture Monitor – API giữa Desktop App và Backend",
-            "version": "1.4.0",
+            "version": "1.5.0",
             "description": (
+                "Thay đổi v1.5: thêm lịch sử cảnh báo (alert-service): `GET /alerts/me`, `GET /alerts/me/sessions`, "
+                "`GET /alerts/org` (ORG_ADMIN). Phiên không có `SESSION_END` tự đóng sau 3 phút không có dữ liệu "
+                "(`endReason` `TIMEOUT`) và mở lại nếu dữ liệu mới hơn đến muộn.\n\n"
                 "Thay đổi v1.4: thêm `GET/PUT /config/org` cho ORG_ADMIN; `GET /config/me`, phản hồi PUT và sự kiện "
                 "Socket.IO `config` trả cấu hình hiệu lực sau khi gộp tổ chức rồi cá nhân. Notification đã gửi "
                 "sự kiện `status` từ telemetry.\n\n"
@@ -83,7 +103,7 @@ def main():
                 "Thay đổi v1.2: thêm `GET /auth/me`, `POST /auth/logout`, các endpoint quản lý tài khoản `/users` và "
                 "`GET /auth/.well-known/jwks.json`; body lỗi `Error` đổi thành `{code, message, traceId, errors}`; "
                 "`login`/`refresh` thêm mã 400 và 500; thêm bảng mã lỗi; `MANAGER` -> `ORG_ADMIN`.\n\n"
-                "Hợp đồng API v1.4 giữa Desktop App (edge), Web Dashboard và backend microservice.\n\n"
+                "Hợp đồng API v1.5 giữa Desktop App (edge), Web Dashboard và backend microservice.\n\n"
                 "- Thời gian: ISO-8601 UTC (`...Z`). Body: JSON UTF-8.\n"
                 "- Chống trùng: cùng `eventId` / `metricId` chỉ lưu 1 lần nhưng VẪN trả trong `accepted`.\n"
                 "- Kiểm tra từng mục: mục sai schema vào `rejected`, các mục khác vẫn nhận.\n"
@@ -121,11 +141,11 @@ def main():
                 "| `MALFORMED_REQUEST` | 400 | Body không phải JSON hợp lệ |\n"
                 "| `INTERNAL_ERROR` | 500 | Lỗi bất ngờ phía server |\n"
                 "| `HTTP_<mã>` | 4xx | Lỗi khung chung, ví dụ `HTTP_405`, `HTTP_415` |\n\n"
-                "Các endpoint khác (telemetry, config) có thể trả thêm mã riêng, mô tả ở từng endpoint. "
+                "Các endpoint khác (telemetry, config, alerts) có thể trả thêm mã riêng, mô tả ở từng endpoint. "
                 "`503 AUTH_UNAVAILABLE` do Gateway trả khi tạm thời không lấy được khóa kiểm token."),
         },
         "servers": [{"url": "http://127.0.0.1:8080", "description": "mock_server.py / máy dev"}],
-        "tags": [{"name": "telemetry"}, {"name": "auth"}, {"name": "users"}, {"name": "config"}, {"name": "system"}],
+        "tags": [{"name": "telemetry"}, {"name": "auth"}, {"name": "users"}, {"name": "config"}, {"name": "alerts"}, {"name": "system"}],
         "paths": {
             "/api/v1/health": {"get": {
                 "tags": ["system"], "summary": "Kiểm tra server sống", "security": [],
@@ -307,6 +327,32 @@ def main():
                             "400": err(VALIDATION), "401": err("Chưa đăng nhập / token hết hạn"),
                             "403": err(FORBIDDEN)}},
             },
+            "/api/v1/alerts/me": {"get": {
+                "tags": ["alerts"], "summary": "Lịch sử cảnh báo của người gọi",
+                "description": "Mọi role. Các lần cảnh báo (mỗi cặp ALERT_STARTED…ALERT_RESOLVED là một mục) "
+                               "bắt đầu trong khoảng `[from, to)`, mới nhất trước. " + ENDED_WITH_SESSION,
+                "parameters": HISTORY_RANGE + [ALERT_TYPE] + HISTORY_PAGE,
+                "responses": {"200": {"description": "Một trang cảnh báo", "content": {"application/json": {
+                    "schema": {"$ref": "#/components/schemas/AlertPage"}}}},
+                    "400": err(HISTORY_400), "401": err(AUTH_401)}}},
+            "/api/v1/alerts/me/sessions": {"get": {
+                "tags": ["alerts"], "summary": "Các phiên làm việc của người gọi",
+                "description": "Mọi role. Phiên giao với khoảng `[from, to)`, mới nhất trước, kèm số cảnh báo. "
+                               "Phiên đóng bằng `SESSION_END` từ app, hoặc `TIMEOUT` khi 3 phút không có dữ liệu "
+                               "(app bị tắt, máy ngủ). Phiên `TIMEOUT` mở lại nếu sau đó đến dữ liệu mới hơn "
+                               "(app gửi bù khi có mạng lại).",
+                "parameters": HISTORY_RANGE + HISTORY_PAGE,
+                "responses": {"200": {"description": "Một trang phiên", "content": {"application/json": {
+                    "schema": {"$ref": "#/components/schemas/AlertSessionPage"}}}},
+                    "400": err(HISTORY_400), "401": err(AUTH_401)}}},
+            "/api/v1/alerts/org": {"get": {
+                "tags": ["alerts"], "summary": "Lịch sử cảnh báo của cả tổ chức",
+                "description": "Chỉ ORG_ADMIN có orgId. Như `GET /alerts/me` nhưng gồm mọi thành viên; tổ chức "
+                               "của một phiên lấy theo `orgId` trong dữ liệu app gửi. " + ENDED_WITH_SESSION,
+                "parameters": HISTORY_RANGE + [ALERT_TYPE] + HISTORY_PAGE,
+                "responses": {"200": {"description": "Một trang cảnh báo", "content": {"application/json": {
+                    "schema": {"$ref": "#/components/schemas/AlertPage"}}}},
+                    "400": err(HISTORY_400), "401": err(AUTH_401), "403": err(FORBIDDEN)}}},
         },
         "components": {
             "securitySchemes": {"bearerAuth": {"type": "http", "scheme": "bearer", "bearerFormat": "JWT"}},
@@ -369,6 +415,43 @@ def main():
                     "role": {"enum": ["USER", "ORG_ADMIN", "SYS_ADMIN"]}}},
                 "ChangeStatusRequest": {"type": "object", "required": ["enabled"], "properties": {
                     "enabled": {"type": "boolean", "description": "false = khóa và thu hồi mọi refresh token"}}},
+                "AlertItem": {"type": "object", "required": [
+                    "userId", "deviceId", "sessionId", "alertType", "startedAt", "repeatCount", "open"], "properties": {
+                    "userId": {"type": "string", "format": "uuid"},
+                    "deviceId": {"type": "string"},
+                    "sessionId": {"type": "string"},
+                    "alertType": {"type": "string", "description": "như `alertType` của sự kiện, ví dụ `NECK_TRUNK`"},
+                    "severity": {"type": ["string", "null"], "enum": ["LOW", "MEDIUM", "HIGH", None],
+                                 "description": "mức mới nhất đã nhận"},
+                    "startedAt": {"type": "string", "format": "date-time"},
+                    "endedAt": {"type": ["string", "null"], "format": "date-time",
+                                "description": "null khi còn đang mở"},
+                    "durationSec": {"type": ["integer", "null"], "description": "endedAt − startedAt, giây"},
+                    "endReason": {"type": ["string", "null"], "description": (
+                        "`reason` của ALERT_RESOLVED (`CORRECTED`, `AWAY`, `RECALIBRATE`, `SESSION_END`, `RESET`), "
+                        "hoặc `SESSION_END` / `SESSION_TIMEOUT` khi cảnh báo kết thúc cùng phiên; null khi còn mở")},
+                    "repeatCount": {"type": "integer", "minimum": 0, "description": "số lần ALERT_REPEATED"},
+                    "open": {"type": "boolean", "description": "true khi cả cảnh báo và phiên còn mở"}}},
+                "AlertPage": {"type": "object", "required": ["items", "page", "size", "total"], "properties": {
+                    "items": {"type": "array", "items": {"$ref": "#/components/schemas/AlertItem"}},
+                    "page": {"type": "integer"}, "size": {"type": "integer"},
+                    "total": {"type": "integer", "description": "tổng số mục khớp bộ lọc"}}},
+                "AlertSession": {"type": "object", "required": [
+                    "deviceId", "sessionId", "lastSeenAt", "open", "alertCount"], "properties": {
+                    "deviceId": {"type": "string"},
+                    "sessionId": {"type": "string"},
+                    "startedAt": {"type": ["string", "null"], "format": "date-time",
+                                  "description": "null khi chưa nhận SESSION_START"},
+                    "endedAt": {"type": ["string", "null"], "format": "date-time"},
+                    "endReason": {"type": ["string", "null"], "enum": ["SESSION_END", "TIMEOUT", None]},
+                    "lastSeenAt": {"type": "string", "format": "date-time",
+                                   "description": "thời điểm (theo `ts` của app) của dữ liệu mới nhất"},
+                    "open": {"type": "boolean"},
+                    "alertCount": {"type": "integer", "minimum": 0}}},
+                "AlertSessionPage": {"type": "object", "required": ["items", "page", "size", "total"], "properties": {
+                    "items": {"type": "array", "items": {"$ref": "#/components/schemas/AlertSession"}},
+                    "page": {"type": "integer"}, "size": {"type": "integer"},
+                    "total": {"type": "integer"}}},
                 "LogoutRequest": {"type": "object", "required": ["refreshToken"], "properties": {
                     "refreshToken": {"type": "string", "maxLength": 512}}},
             },
