@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# Dữ liệu sinh ra khi chạy app (outbox, sự kiện, log từng mẫu)
+posture_model/out/
+posture_model/log.csv
+posture_model/distance_check.csv
+*.db
+*.db-shm
+*.db-wal
+
+# Dữ liệu server giả nhận được
+**/mock_data/
+
+# Đóng gói PyInstaller
+posture_model/build/
+posture_model/dist/
+*.spec
+
+# Kết quả kiểm thử tải / báo cáo contract
+api_handover/load_*.csv
+api_handover/report.json
+
+# IDE / hệ điều hành
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
