@@ -4,8 +4,10 @@ info:
   title: Posture Monitor – API giữa Desktop App và Backend
   version: 1.5.0
   description: 'Thay đổi v1.5: thêm lịch sử cảnh báo (alert-service): `GET /alerts/me`, `GET /alerts/me/sessions`,
-    `GET /alerts/org` (ORG_ADMIN). Phiên không có `SESSION_END` tự đóng sau 3 phút không có dữ liệu (`endReason`
-    `TIMEOUT`) và mở lại nếu dữ liệu mới hơn đến muộn.
+    `GET /alerts/org` (ORG_ADMIN), và thống kê cho Dashboard (analytics-service): `GET /stats/me/summary`, `/stats/me/timeseries`,
+    `/stats/me/heatmap`, `/stats/org/summary` (ORG_ADMIN). Mốc thời gian trong query string phải mã hoá URL (`+07:00`
+    -> `%2B07:00`). Phiên không có `SESSION_END` tự đóng sau 3 phút không có dữ liệu (`endReason` `TIMEOUT`) và
+    mở lại nếu dữ liệu mới hơn đến muộn.
 
 
     Thay đổi v1.4: thêm `GET/PUT /config/org` cho ORG_ADMIN; `GET /config/me`, phản hồi PUT và sự kiện Socket.IO
@@ -104,6 +106,7 @@ tags:
 - name: users
 - name: config
 - name: alerts
+- name: stats
 - name: system
 paths:
   /api/v1/health:
@@ -916,6 +919,164 @@ paths:
         '400':
           description: '`VALIDATION_FAILED`: `from`/`to` sai định dạng, khoảng không dương hoặc quá 92 ngày, `alertType`,
             `page` hoặc `size` sai; trường sai nằm trong `errors`'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Thiếu / sai / hết hạn token (`AUTH_TOKEN_MISSING`, `AUTH_TOKEN_INVALID`, `AUTH_TOKEN_EXPIRED`
+            từ Gateway).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: '`AUTH_FORBIDDEN`: role không đủ quyền hoặc vi phạm quy tắc phạm vi'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/v1/stats/me/summary:
+    get:
+      tags:
+      - stats
+      summary: Tổng hợp tư thế của người gọi trong một khoảng
+      description: 'Mọi role. Tính từ metrics 60 giây: `meanScore` = trung bình `postureScore` có trọng số `presenceSec`
+        (bỏ phút `postureScore` null; null nếu không có phút nào), `badMinutes` = Σ (1 − goodRatio) × presenceSec
+        / 60, `presenceMinutes` = Σ presenceSec / 60, `alerts` = tổng `alertCount` theo loại. Lọc theo `windowStart`
+        trong `[from, to)`.'
+      parameters: &id007
+      - *id002
+      - *id003
+      responses:
+        '200':
+          description: Tổng hợp
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatsSummary'
+        '400':
+          description: '`VALIDATION_FAILED`: `from`/`to` sai định dạng, khoảng không dương hoặc quá 92 ngày; trường
+            sai trong `errors`'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Thiếu / sai / hết hạn token (`AUTH_TOKEN_MISSING`, `AUTH_TOKEN_INVALID`, `AUTH_TOKEN_EXPIRED`
+            từ Gateway).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/v1/stats/me/timeseries:
+    get:
+      tags:
+      - stats
+      summary: Chuỗi thời gian theo giờ hoặc theo ngày
+      description: 'Mọi role. Mỗi phần tử là một khung có dữ liệu (khung không có metrics thì không có phần tử),
+        sắp theo `start` tăng dần. `hour`: khung giờ UTC. `day`: ngày theo giờ Việt Nam (UTC+7), `start` là 00:00
+        giờ Việt Nam viết theo UTC, ví dụ `2026-10-13T17:00:00Z` là ngày 14/10. Tính từ metrics 60 giây: `meanScore`
+        = trung bình `postureScore` có trọng số `presenceSec` (bỏ phút `postureScore` null; null nếu không có phút
+        nào), `badMinutes` = Σ (1 − goodRatio) × presenceSec / 60, `presenceMinutes` = Σ presenceSec / 60, `alerts`
+        = tổng `alertCount` theo loại. Lọc theo `windowStart` trong `[from, to)`.'
+      parameters:
+      - *id002
+      - *id003
+      - name: bucket
+        in: query
+        required: false
+        description: Độ rộng khung
+        schema:
+          type: string
+          enum:
+          - hour
+          - day
+          default: day
+      responses:
+        '200':
+          description: Các khung có dữ liệu
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/StatsBucket'
+        '400':
+          description: '`VALIDATION_FAILED`: `from`/`to` sai định dạng, khoảng không dương hoặc quá 92 ngày; trường
+            sai trong `errors`; `bucket` khác `hour`/`day`'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Thiếu / sai / hết hạn token (`AUTH_TOKEN_MISSING`, `AUTH_TOKEN_INVALID`, `AUTH_TOKEN_EXPIRED`
+            từ Gateway).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/v1/stats/me/heatmap:
+    get:
+      tags:
+      - stats
+      summary: Heatmap điểm tư thế theo thứ và giờ
+      description: Mọi role. Luôn đủ 168 ô (7 thứ × 24 giờ, giờ Việt Nam), thứ tự thứ 1..7 rồi giờ 0..23; ô không
+        có dữ liệu có `meanScore` null. Lấy `weeks` tuần tính tới hiện tại.
+      parameters:
+      - name: weeks
+        in: query
+        required: false
+        description: Số tuần
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 12
+          default: 4
+      responses:
+        '200':
+          description: 168 ô
+          content:
+            application/json:
+              schema:
+                type: array
+                minItems: 168
+                maxItems: 168
+                items:
+                  $ref: '#/components/schemas/HeatmapCell'
+        '400':
+          description: '`VALIDATION_FAILED`: `weeks` không phải số nguyên 1..12'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Thiếu / sai / hết hạn token (`AUTH_TOKEN_MISSING`, `AUTH_TOKEN_INVALID`, `AUTH_TOKEN_EXPIRED`
+            từ Gateway).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/v1/stats/org/summary:
+    get:
+      tags:
+      - stats
+      summary: Tổng hợp tư thế của cả tổ chức
+      description: 'Chỉ ORG_ADMIN có orgId. Như `/stats/me/summary` nhưng gộp mọi thành viên. Tính từ metrics 60
+        giây: `meanScore` = trung bình `postureScore` có trọng số `presenceSec` (bỏ phút `postureScore` null; null
+        nếu không có phút nào), `badMinutes` = Σ (1 − goodRatio) × presenceSec / 60, `presenceMinutes` = Σ presenceSec
+        / 60, `alerts` = tổng `alertCount` theo loại. Lọc theo `windowStart` trong `[from, to)`.'
+      parameters: *id007
+      responses:
+        '200':
+          description: Tổng hợp
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatsSummary'
+        '400':
+          description: '`VALIDATION_FAILED`: `from`/`to` sai định dạng, khoảng không dương hoặc quá 92 ngày; trường
+            sai trong `errors`'
           content:
             application/json:
               schema:
@@ -1852,6 +2013,69 @@ components:
           type: integer
         total:
           type: integer
+    StatsSummary:
+      type: object
+      required:
+      - meanScore
+      - badMinutes
+      - presenceMinutes
+      - alerts
+      properties:
+        meanScore:
+          type:
+          - number
+          - 'null'
+          minimum: 0
+          maximum: 100
+          description: điểm tư thế trung bình 0–100; null khi không có dữ liệu
+        badMinutes:
+          type: number
+          minimum: 0
+          description: số phút ngồi sai
+        presenceMinutes:
+          type: number
+          minimum: 0
+          description: số phút có người
+        alerts:
+          type: object
+          additionalProperties:
+            type: integer
+            minimum: 0
+          description: 'số lần cảnh báo theo loại, ví dụ `{"NECK_TRUNK": 3}`'
+    StatsBucket:
+      allOf:
+      - type: object
+        required:
+        - start
+        properties:
+          start:
+            type: string
+            format: date-time
+            description: đầu khung (UTC)
+      - $ref: '#/components/schemas/StatsSummary'
+    HeatmapCell:
+      type: object
+      required:
+      - weekday
+      - hour
+      - meanScore
+      properties:
+        weekday:
+          type: integer
+          minimum: 1
+          maximum: 7
+          description: 1 = thứ Hai … 7 = Chủ nhật
+        hour:
+          type: integer
+          minimum: 0
+          maximum: 23
+          description: giờ Việt Nam
+        meanScore:
+          type:
+          - number
+          - 'null'
+          minimum: 0
+          maximum: 100
     LogoutRequest:
       type: object
       required:

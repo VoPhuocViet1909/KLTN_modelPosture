@@ -9,10 +9,10 @@ Chỉ cần Python 3.9+ (thư viện chuẩn) để chạy các script; `tools/b
 
 | File | Dùng để |
 | --- | --- |
-| `openapi.yaml` | Đặc tả OpenAPI 3.1 v1.5: auth, quản lý tài khoản, telemetry, config cá nhân/tổ chức, lịch sử cảnh báo, health. Mở bằng https://editor.swagger.io hoặc import vào Postman; sinh DTO / controller bằng openapi-generator |
+| `openapi.yaml` | Đặc tả OpenAPI 3.1 v1.5: auth, quản lý tài khoản, telemetry, config cá nhân/tổ chức, lịch sử cảnh báo, thống kê Dashboard, health. Mở bằng https://editor.swagger.io hoặc import vào Postman; sinh DTO / controller bằng openapi-generator |
 | `schemas/*.json` | **Nguồn chuẩn duy nhất** của dữ liệu: `event`, `metrics`, `batch`, `config` (JSON Schema 2020-12). Backend kiểm tra dữ liệu bằng chính các file này |
-| `mock_server.py` + `schema.py` | Server giả chạy đúng hợp đồng – để đối chiếu hành vi |
-| `contract_test.py` | 29 bài kiểm tra hợp đồng, chạy vào bất kỳ server nào. **Mốc M2 = đạt 100%** |
+| `mock_server.py` + `schema.py` + `history.py` | Server giả chạy đúng hợp đồng – để đối chiếu hành vi; có cả `/alerts/*` và `/stats/*` tính từ dữ liệu đã nhận (Dashboard dùng thử được khi chưa có backend). `python test_history.py`: 4 test |
+| `contract_test.py` | 47 bài kiểm tra hợp đồng, chạy vào bất kỳ server nào. **Mốc M2 = đạt 100%** |
 | `replay.py` | `seed`: sinh lịch sử nhiều ngày để làm Dashboard · `load`: kiểm thử tải N máy |
 | `payloads.py` | Bộ sinh dữ liệu hợp lệ, dùng chung cho 2 script trên |
 | `sample_data/p01_*.jsonl` | Dữ liệu THẬT từ app chạy trên video người tham gia P01 (9 sự kiện, 4 metrics) |
@@ -24,7 +24,7 @@ Chỉ cần Python 3.9+ (thư viện chuẩn) để chạy các script; `tools/b
 # 1. chạy server giả (bắt buộc đăng nhập như server thật)
 python mock_server.py --require-login            # http://127.0.0.1:8080, tài khoản demo@kltn.local / 123456
 
-# 2. chạy bộ kiểm tra hợp đồng vào server giả -> phải 29/29
+# 2. chạy bộ kiểm tra hợp đồng vào server giả -> phải 47/47
 python contract_test.py --base http://127.0.0.1:8080 --email demo@kltn.local --password 123456
 
 # 3. khi server Spring của bạn chạy: đổi --base, sửa tới khi đạt 100%
@@ -163,7 +163,20 @@ Thêm 3 endpoint của alert-service (không đổi `schemas/*.json`, không đ�
 - **Phiên tự đóng:** app không gửi được `SESSION_END` khi bị tắt đột ngột, nên backend đóng phiên sau 3 phút không có dữ liệu (`endReason` `TIMEOUT`, `endedAt` = lúc có dữ liệu cuối). Nếu app chỉ mất mạng rồi gửi bù dữ liệu mới hơn, phiên mở lại. App không cần làm gì thêm.
 - Lỗi: 400 `VALIDATION_FAILED` (trường sai trong `errors`), 401, 403 `AUTH_FORBIDDEN` với `/org`.
 
-`mock_server.py` và `contract_test.py` **chưa có** các endpoint này.
+Thống kê cho Dashboard (analytics-service), cùng tham số `from` / `to`:
+
+| Endpoint | Quyền | Trả về |
+| --- | --- | --- |
+| `GET /api/v1/stats/me/summary?from&to` | mọi role | `{meanScore, badMinutes, presenceMinutes, alerts}` |
+| `GET /api/v1/stats/me/timeseries?from&to&bucket=hour\|day` | mọi role | mảng `{start, meanScore, badMinutes, presenceMinutes, alerts}`, chỉ khung có dữ liệu |
+| `GET /api/v1/stats/me/heatmap?weeks=1..12` | mọi role | đúng 168 ô `{weekday 1..7, hour 0..23, meanScore}` |
+| `GET /api/v1/stats/org/summary?from&to` | ORG_ADMIN có `orgId` | như summary, gộp cả tổ chức |
+
+- `meanScore` là trung bình `postureScore` có trọng số theo `presenceSec` (null khi không có dữ liệu); `badMinutes` = Σ(1 − goodRatio) × presenceSec / 60.
+- Ngày (`bucket=day`) và heatmap tính theo **giờ Việt Nam**: `start` `2026-10-13T17:00:00Z` là ngày 14/10.
+- Mốc thời gian trong query string phải mã hoá URL: `+07:00` viết `%2B07:00` (dùng `encodeURIComponent` / `URLSearchParams`), nếu không dấu `+` thành dấu cách và bị 400.
+
+**Server giả và bộ kiểm tra:** `mock_server.py` trả được cả 7 endpoint trên, tính lại từ dữ liệu đã nhận theo cùng quy tắc với backend (đã đối chiếu với câu SQL của analytics-service). Thêm tài khoản `admin@kltn.local` / `123456` (ORG_ADMIN, cùng tổ chức với `demo@kltn.local`) để thử `/org`. Lỗi của các endpoint mới dùng body chuẩn `{code, message, traceId, errors}`. `contract_test.py` thêm nhóm `history` (18 bài); với backend thật nhóm này chờ tối đa 20 giây cho dữ liệu đi qua Kafka. Tài khoản kiểm tra không phải USER thì thêm `--not-user` để bỏ 2 bài 403.
 
 ## v1.3 → v1.4: cấu hình tổ chức
 

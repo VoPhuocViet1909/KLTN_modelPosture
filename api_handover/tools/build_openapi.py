@@ -65,6 +65,11 @@ HISTORY_400 = ("`VALIDATION_FAILED`: `from`/`to` sai định dạng, khoảng kh
                "`page` hoặc `size` sai; trường sai nằm trong `errors`")
 ENDED_WITH_SESSION = ("Cảnh báo không có `ALERT_RESOLVED` (app tắt giữa chừng) kết thúc cùng phiên: `endedAt` là lúc "
                       "phiên kết thúc, `endReason` là `SESSION_END` hoặc `SESSION_TIMEOUT`.")
+STATS_400 = "`VALIDATION_FAILED`: `from`/`to` sai định dạng, khoảng không dương hoặc quá 92 ngày; trường sai trong `errors`"
+STATS_HOW = ("Tính từ metrics 60 giây: `meanScore` = trung bình `postureScore` có trọng số `presenceSec` (bỏ phút "
+             "`postureScore` null; null nếu không có phút nào), `badMinutes` = Σ (1 − goodRatio) × presenceSec / 60, "
+             "`presenceMinutes` = Σ presenceSec / 60, `alerts` = tổng `alertCount` theo loại. Lọc theo `windowStart` "
+             "trong `[from, to)`.")
 USER_ID = {"name": "id", "in": "path", "required": True, "description": "Id người dùng (UUID)",
            "schema": {"type": "string", "format": "uuid"}}
 
@@ -94,7 +99,9 @@ def main():
             "version": "1.5.0",
             "description": (
                 "Thay đổi v1.5: thêm lịch sử cảnh báo (alert-service): `GET /alerts/me`, `GET /alerts/me/sessions`, "
-                "`GET /alerts/org` (ORG_ADMIN). Phiên không có `SESSION_END` tự đóng sau 3 phút không có dữ liệu "
+                "`GET /alerts/org` (ORG_ADMIN), và thống kê cho Dashboard (analytics-service): "
+                "`GET /stats/me/summary`, `/stats/me/timeseries`, `/stats/me/heatmap`, `/stats/org/summary` "
+                "(ORG_ADMIN). Mốc thời gian trong query string phải mã hoá URL (`+07:00` -> `%2B07:00`). Phiên không có `SESSION_END` tự đóng sau 3 phút không có dữ liệu "
                 "(`endReason` `TIMEOUT`) và mở lại nếu dữ liệu mới hơn đến muộn.\n\n"
                 "Thay đổi v1.4: thêm `GET/PUT /config/org` cho ORG_ADMIN; `GET /config/me`, phản hồi PUT và sự kiện "
                 "Socket.IO `config` trả cấu hình hiệu lực sau khi gộp tổ chức rồi cá nhân. Notification đã gửi "
@@ -145,7 +152,7 @@ def main():
                 "`503 AUTH_UNAVAILABLE` do Gateway trả khi tạm thời không lấy được khóa kiểm token."),
         },
         "servers": [{"url": "http://127.0.0.1:8080", "description": "mock_server.py / máy dev"}],
-        "tags": [{"name": "telemetry"}, {"name": "auth"}, {"name": "users"}, {"name": "config"}, {"name": "alerts"}, {"name": "system"}],
+        "tags": [{"name": "telemetry"}, {"name": "auth"}, {"name": "users"}, {"name": "config"}, {"name": "alerts"}, {"name": "stats"}, {"name": "system"}],
         "paths": {
             "/api/v1/health": {"get": {
                 "tags": ["system"], "summary": "Kiểm tra server sống", "security": [],
@@ -353,6 +360,42 @@ def main():
                 "responses": {"200": {"description": "Một trang cảnh báo", "content": {"application/json": {
                     "schema": {"$ref": "#/components/schemas/AlertPage"}}}},
                     "400": err(HISTORY_400), "401": err(AUTH_401), "403": err(FORBIDDEN)}}},
+            "/api/v1/stats/me/summary": {"get": {
+                "tags": ["stats"], "summary": "Tổng hợp tư thế của người gọi trong một khoảng",
+                "description": "Mọi role. " + STATS_HOW,
+                "parameters": HISTORY_RANGE,
+                "responses": {"200": {"description": "Tổng hợp", "content": {"application/json": {
+                    "schema": {"$ref": "#/components/schemas/StatsSummary"}}}},
+                    "400": err(STATS_400), "401": err(AUTH_401)}}},
+            "/api/v1/stats/me/timeseries": {"get": {
+                "tags": ["stats"], "summary": "Chuỗi thời gian theo giờ hoặc theo ngày",
+                "description": "Mọi role. Mỗi phần tử là một khung có dữ liệu (khung không có metrics thì không có "
+                               "phần tử), sắp theo `start` tăng dần. `hour`: khung giờ UTC. `day`: ngày theo giờ "
+                               "Việt Nam (UTC+7), `start` là 00:00 giờ Việt Nam viết theo UTC, ví dụ "
+                               "`2026-10-13T17:00:00Z` là ngày 14/10. " + STATS_HOW,
+                "parameters": HISTORY_RANGE + [
+                    {"name": "bucket", "in": "query", "required": False, "description": "Độ rộng khung",
+                     "schema": {"type": "string", "enum": ["hour", "day"], "default": "day"}}],
+                "responses": {"200": {"description": "Các khung có dữ liệu", "content": {"application/json": {
+                    "schema": {"type": "array", "items": {"$ref": "#/components/schemas/StatsBucket"}}}}},
+                    "400": err(STATS_400 + "; `bucket` khác `hour`/`day`"), "401": err(AUTH_401)}}},
+            "/api/v1/stats/me/heatmap": {"get": {
+                "tags": ["stats"], "summary": "Heatmap điểm tư thế theo thứ và giờ",
+                "description": "Mọi role. Luôn đủ 168 ô (7 thứ × 24 giờ, giờ Việt Nam), thứ tự thứ 1..7 rồi giờ "
+                               "0..23; ô không có dữ liệu có `meanScore` null. Lấy `weeks` tuần tính tới hiện tại.",
+                "parameters": [{"name": "weeks", "in": "query", "required": False, "description": "Số tuần",
+                                "schema": {"type": "integer", "minimum": 1, "maximum": 12, "default": 4}}],
+                "responses": {"200": {"description": "168 ô", "content": {"application/json": {"schema": {
+                    "type": "array", "minItems": 168, "maxItems": 168,
+                    "items": {"$ref": "#/components/schemas/HeatmapCell"}}}}},
+                    "400": err("`VALIDATION_FAILED`: `weeks` không phải số nguyên 1..12"), "401": err(AUTH_401)}}},
+            "/api/v1/stats/org/summary": {"get": {
+                "tags": ["stats"], "summary": "Tổng hợp tư thế của cả tổ chức",
+                "description": "Chỉ ORG_ADMIN có orgId. Như `/stats/me/summary` nhưng gộp mọi thành viên. " + STATS_HOW,
+                "parameters": HISTORY_RANGE,
+                "responses": {"200": {"description": "Tổng hợp", "content": {"application/json": {
+                    "schema": {"$ref": "#/components/schemas/StatsSummary"}}}},
+                    "400": err(STATS_400), "401": err(AUTH_401), "403": err(FORBIDDEN)}}},
         },
         "components": {
             "securitySchemes": {"bearerAuth": {"type": "http", "scheme": "bearer", "bearerFormat": "JWT"}},
@@ -452,6 +495,21 @@ def main():
                     "items": {"type": "array", "items": {"$ref": "#/components/schemas/AlertSession"}},
                     "page": {"type": "integer"}, "size": {"type": "integer"},
                     "total": {"type": "integer"}}},
+                "StatsSummary": {"type": "object", "required": [
+                    "meanScore", "badMinutes", "presenceMinutes", "alerts"], "properties": {
+                    "meanScore": {"type": ["number", "null"], "minimum": 0, "maximum": 100,
+                                  "description": "điểm tư thế trung bình 0–100; null khi không có dữ liệu"},
+                    "badMinutes": {"type": "number", "minimum": 0, "description": "số phút ngồi sai"},
+                    "presenceMinutes": {"type": "number", "minimum": 0, "description": "số phút có người"},
+                    "alerts": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0},
+                               "description": "số lần cảnh báo theo loại, ví dụ `{\"NECK_TRUNK\": 3}`"}}},
+                "StatsBucket": {"allOf": [{"type": "object", "required": ["start"], "properties": {
+                    "start": {"type": "string", "format": "date-time", "description": "đầu khung (UTC)"}}},
+                    {"$ref": "#/components/schemas/StatsSummary"}]},
+                "HeatmapCell": {"type": "object", "required": ["weekday", "hour", "meanScore"], "properties": {
+                    "weekday": {"type": "integer", "minimum": 1, "maximum": 7, "description": "1 = thứ Hai … 7 = Chủ nhật"},
+                    "hour": {"type": "integer", "minimum": 0, "maximum": 23, "description": "giờ Việt Nam"},
+                    "meanScore": {"type": ["number", "null"], "minimum": 0, "maximum": 100}}},
                 "LogoutRequest": {"type": "object", "required": ["refreshToken"], "properties": {
                     "refreshToken": {"type": "string", "maxLength": 512}}},
             },
