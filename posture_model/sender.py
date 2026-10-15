@@ -23,6 +23,7 @@ import urllib.request
 from datetime import datetime, timezone
 
 from schema import validate
+from api_session import AuthError, NoRedirect
 
 URGENT = {"ALERT_STARTED", "ALERT_REPEATED", "ALERT_RESOLVED", "USER_AWAY", "USER_BACK"}
 LOCAL_ONLY_KEYS = ("notify",)          # khoá chỉ dùng trong app, không gửi lên server
@@ -34,13 +35,15 @@ def _now_iso():
 
 class Sender(threading.Thread):
     def __init__(self, outbox, base_url=None, token=None, device_id="", interval=5.0, batch_max=100,
-                 timeout=5.0, check_schema=True):
+                 timeout=5.0, check_schema=True, auth=None):
         super().__init__(daemon=True, name="Sender")
         self.outbox = outbox
         self.base_url = (base_url or "").rstrip("/") or None
         self.token, self.device_id = token, device_id
         self.interval, self.batch_max, self.timeout = interval, batch_max, timeout
         self.check_schema = check_schema
+        self.auth = auth
+        self._opener = urllib.request.build_opener(NoRedirect)
         self.q = queue.Queue()
         self._wake = threading.Event()
         self._halt = threading.Event()
@@ -84,7 +87,7 @@ class Sender(threading.Thread):
             self._wake.wait(self.interval)
             self._wake.clear()
             self._drain()
-            if self.base_url:
+            if self.base_url and not self._halt.is_set():
                 self._maybe_probe()
                 self._flush()
         self._drain()
@@ -125,11 +128,13 @@ class Sender(threading.Thread):
             pass
 
     def _flush(self, final=False):
-        for _ in range(50):                      # tối đa 50 lô / lần (5000 mục) rồi nhường lượt
+        for _ in range(1 if final else 50):      # Thoát: chỉ thử một lô; phần còn lại đã ở SQLite.
             items = self.outbox.due(self.batch_max)
             if not items:
                 return
             if not self._send(items):
+                return
+            if self._halt.is_set():
                 return
 
     def _send(self, items):
@@ -139,12 +144,15 @@ class Sender(threading.Thread):
         ids = [i for i, _, _ in items]
         data = json.dumps(body, ensure_ascii=False).encode("utf-8")
         headers = {"Content-Type": "application/json", "X-Device-Id": self.device_id}
-        if self.token:
-            headers["Authorization"] = f"Bearer {self.token}"
-        req = urllib.request.Request(self.base_url + "/api/v1/telemetry/batch", data=data, headers=headers,
-                                     method="POST")
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout) as r:
+            if self.auth and any(payload.get("userId") != self.auth.user_id for _, _, payload in items):
+                raise AuthError("Outbox belongs to another user; use that account or a separate --outbox")
+            if self.token and not self.auth:
+                headers["Authorization"] = f"Bearer {self.token}"
+            req = urllib.request.Request(self.base_url + "/api/v1/telemetry/batch", data=data, headers=headers,
+                                         method="POST")
+            with (self.auth.open(req, timeout=self.timeout) if self.auth else
+                  self._opener.open(req, timeout=self.timeout)) as r:
                 raw = r.read()
             res = json.loads(raw) if raw else {}
         except urllib.error.HTTPError as e:
@@ -153,8 +161,11 @@ class Sender(threading.Thread):
                 return True
             self._fail(ids, f"HTTP {e.code}", offline=e.code >= 500 or e.code in (408, 429))
             return False
-        except Exception as e:                                   # mất mạng, timeout, DNS...
-            self._fail(ids, repr(e), offline=True)
+        except AuthError as e:
+            self._fail(ids, str(e), offline=True)
+            return False
+        except Exception:                                       # Không ghi URL/token vào outbox/log.
+            self._fail(ids, "Telemetry unavailable or invalid response", offline=True)
             return False
         rejected = {r["id"]: r.get("reason", "rejected") for r in res.get("rejected", []) if "id" in r}
         self.outbox.mark_dead(list(rejected.items()))

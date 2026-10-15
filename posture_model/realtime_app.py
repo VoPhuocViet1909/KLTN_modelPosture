@@ -14,6 +14,7 @@ Desktop App – giai đoạn 1 (bản đầy đủ của realtime_posture.py, fi
 Phím: q = thoát, c = hiệu chỉnh lại. Sửa app_config.json khi app đang chạy -> áp dụng sau ~2 giây.
 """
 import argparse
+import getpass
 import collections
 import json
 import os
@@ -33,6 +34,7 @@ from quality import ANGLE_KEYS, angles_ok, dist_ok
 from notifier import Notifier, ascii_vi
 from outbox import Outbox
 from sender import Sender
+from api_session import ApiSession, AuthError
 from live_stream import LivePublisher
 from posture_features import (FEATURES, apply_calibration, calibration_baseline, choose_side, facing_sign,
                               rula_frame_label, sequence_angles, shoulder_tilt, to_model_input)
@@ -141,6 +143,7 @@ def main():
     ap.add_argument("--side-video", default=None)
     ap.add_argument("--front-video", default=None)
     ap.add_argument("--config", default=os.path.join(APP_DIR, "app_config.json"))
+    ap.add_argument("--login", action="store_true", help="đăng nhập API, tự làm mới token trong bộ nhớ")
     ap.add_argument("--events", default=os.path.join(APP_DIR, "out", "events.jsonl"))
     ap.add_argument("--metrics-out", default=os.path.join(APP_DIR, "out", "metrics.jsonl"))
     ap.add_argument("--outbox", default=os.path.join(APP_DIR, "out", "outbox.db"))
@@ -156,6 +159,13 @@ def main():
 
     model_cfg = json.load(open(os.path.join(HERE, "posture_config.json"), encoding="utf-8"))
     cfg = AppConfig(a.config, model_cfg)
+    auth = None
+    if a.login:
+        try:
+            auth = ApiSession(cfg["api_base_url"], input("API email: ").strip(), getpass.getpass("API password: "))
+        except (AuthError, EOFError):
+            raise SystemExit("Đăng nhập không thành công; kiểm tra địa chỉ API và tài khoản") from None
+    user_id = lambda: auth.user_id if auth else cfg["user_id"]
     sess = ort.InferenceSession(os.path.join(HERE, "posture_transformer.onnx"), providers=["CPUExecutionProvider"])
     WIN, FPS = model_cfg["window"], model_cfg["fps"]
     task = os.path.join(HERE, "pose_landmarker_full.task")
@@ -204,13 +214,13 @@ def main():
     pres, rem = PresenceTracker(), Reminders()
     apply_config(cfg, trackers, rem, pres)
     notifier = Notifier(cfg)
-    elog = EventLog(a.events, model_cfg.get("version"), wall_t0=time.time(), user_id=cfg["user_id"],
+    elog = EventLog(a.events, model_cfg.get("version"), wall_t0=time.time(), user_id=user_id(),
                     listeners=[notifier])
 
     # ---------------------------------------------------------------- gửi dữ liệu (giai đoạn 2)
     outbox = Outbox(a.outbox)
     sender = Sender(outbox, cfg["api_base_url"], cfg["api_token"], elog.device_id,
-                    interval=cfg["batch_interval_sec"], batch_max=cfg["batch_max"])
+                    interval=cfg["batch_interval_sec"], batch_max=cfg["batch_max"], auth=auth)
     os.makedirs(os.path.dirname(os.path.abspath(a.metrics_out)), exist_ok=True)
     metrics_f = open(a.metrics_out, "a", encoding="utf-8")
 
@@ -222,7 +232,7 @@ def main():
         metrics_f.flush()
         sender.enqueue_metric(m)
 
-    agg = MetricsAggregator(on_metric, elog.wall_t0, elog.session_id, elog.device_id, cfg["user_id"],
+    agg = MetricsAggregator(on_metric, elog.wall_t0, elog.session_id, elog.device_id, user_id(),
                             window_sec=cfg["metrics_window_sec"], model_version=model_cfg.get("version"),
                             app_version=EventLog.APP_VERSION)
     elog.listeners += [sender.enqueue_event, agg.on_event]
@@ -261,8 +271,9 @@ def main():
     if a.stream_camera:
         if a.stream_camera == "front" and cap_f is None:
             raise SystemExit("Camera front chưa mở; không thể truyền hình")
-        stream = LivePublisher(lambda: (cfg["api_base_url"], cfg["api_token"]), elog.device_id,
-                               a.stream_camera, a.stream_rtsp_base, a.ffmpeg)
+        stream = LivePublisher(lambda: auth.credentials(cfg["api_base_url"]) if auth else
+                               (cfg["api_base_url"], cfg["api_token"]), elog.device_id,
+                               a.stream_camera, a.stream_rtsp_base, a.ffmpeg, auth=auth)
         stream.start()
         print("Live camera enabled:", a.stream_camera, "device:", elog.device_id)
 
@@ -308,7 +319,7 @@ def main():
                 apply_config(cfg, trackers, rem, pres)
                 if "camera_focal_px" in changed and ed is not None and cfg["camera_focal_px"]:
                     ed.focal = cfg["camera_focal_px"]
-                elog.user_id = agg.user_id = cfg["user_id"]
+                elog.user_id = agg.user_id = user_id()
                 if changed & {"api_base_url", "api_token", "batch_interval_sec", "batch_max"}:
                     sender.configure(cfg["api_base_url"], cfg["api_token"], cfg["batch_interval_sec"], cfg["batch_max"])
                 if "metrics_window_sec" in changed:
@@ -479,7 +490,7 @@ def main():
     elog.close()
     agg.flush()                                       # cửa sổ metrics cuối (chưa đủ 60 giây)
     metrics_f.close()
-    sender.stop(timeout=8)                            # gửi nốt; chưa gửi được thì vẫn nằm trong outbox
+    sender.stop(timeout=None)                         # Chờ worker xong trước khi đóng SQLite, kể cả refresh.
     st = outbox.stats()
     outbox.close()
     print(f"Outbox: đã gửi {st['sent']}, còn chờ {st['pending']}, bị từ chối {st['dead']}")

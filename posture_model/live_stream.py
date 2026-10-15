@@ -16,7 +16,7 @@ import urllib.request
 
 
 class LivePublisher:
-    def __init__(self, config, device_id, camera, rtsp_base, ffmpeg="ffmpeg"):
+    def __init__(self, config, device_id, camera, rtsp_base, ffmpeg="ffmpeg", auth=None):
         if camera not in ("side", "front") or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}", device_id):
             raise ValueError("Invalid camera or device ID")
         base = urllib.parse.urlsplit(rtsp_base)
@@ -26,6 +26,7 @@ class LivePublisher:
         if not self.ffmpeg:
             raise ValueError("FFmpeg is required when live streaming is enabled")
         self.config, self.device_id, self.camera = config, device_id, camera
+        self.auth = auth
         self.rtsp_base = rtsp_base.rstrip("/")
         self.frames = collections.deque(maxlen=1)
         self.condition = threading.Condition()
@@ -62,7 +63,8 @@ class LivePublisher:
         class NoRedirect(urllib.request.HTTPRedirectHandler):
             def redirect_request(self, *args, **kwargs):
                 return None
-        with urllib.request.build_opener(NoRedirect).open(request, timeout=5) as response:
+        with (self.auth.open(request, timeout=5) if self.auth else
+              urllib.request.build_opener(NoRedirect).open(request, timeout=5)) as response:
             grant = json.loads(response.read(16384))
         if not re.fullmatch(r"camera/[0-9a-f-]{36}/" + re.escape(self.device_id) + "/" + self.camera, grant["path"]):
             raise ValueError("Invalid granted path")
