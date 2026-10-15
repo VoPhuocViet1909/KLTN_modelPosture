@@ -33,6 +33,7 @@ from quality import ANGLE_KEYS, angles_ok, dist_ok
 from notifier import Notifier, ascii_vi
 from outbox import Outbox
 from sender import Sender
+from live_stream import LivePublisher
 from posture_features import (FEATURES, apply_calibration, calibration_baseline, choose_side, facing_sign,
                               rula_frame_label, sequence_angles, shoulder_tilt, to_model_input)
 from realtime_posture import PoseDetector, draw_front, draw_side, hstack
@@ -148,6 +149,9 @@ def main():
     ap.add_argument("--hide-meta", action="store_true", help="ẩn bảng METADATA lúc mở (phím m để bật lại)")
     ap.add_argument("--no-face", action="store_true", help="không dùng Face Landmarker, đo bằng khoảng cách 2 mắt")
     ap.add_argument("--max-sec", type=float, default=None, help="dừng sau N giây (kiểm thử)")
+    ap.add_argument("--stream-camera", choices=("side", "front"), help="bật truyền hình camera đã chọn; mặc định tắt")
+    ap.add_argument("--stream-rtsp-base", default="rtsp://127.0.0.1:8554")
+    ap.add_argument("--ffmpeg", default="ffmpeg", help="đường dẫn FFmpeg có encoder libx264")
     a = ap.parse_args()
 
     model_cfg = json.load(open(os.path.join(HERE, "posture_config.json"), encoding="utf-8"))
@@ -253,6 +257,15 @@ def main():
     ob_stats = {}
     show_meta = not a.hide_meta
 
+    stream = None
+    if a.stream_camera:
+        if a.stream_camera == "front" and cap_f is None:
+            raise SystemExit("Camera front chưa mở; không thể truyền hình")
+        stream = LivePublisher(lambda: (cfg["api_base_url"], cfg["api_token"]), elog.device_id,
+                               a.stream_camera, a.stream_rtsp_base, a.ffmpeg)
+        stream.start()
+        print("Live camera enabled:", a.stream_camera, "device:", elog.device_id)
+
     while True:
         ok, fs = cap_s.read()
         if not ok:
@@ -271,6 +284,8 @@ def main():
             if not okf:
                 ff = None
         frame_i += 1
+        if stream:
+            stream.submit(fs if a.stream_camera == "side" else ff)
         now = (frame_i / vid_fps) if use_video else (time.time() - t_start)
         if a.max_sec and now > a.max_sec:
             break
@@ -453,6 +468,8 @@ def main():
                 cal, base, tilt_base = start_calib(now), None, None
 
     # ---------------------------------------------------------------- kết thúc phiên
+    if stream:
+        stream.stop()
     evs = []
     for t in trackers:
         evs += t.reset(now, "SESSION_END")
