@@ -144,6 +144,7 @@ def main():
     ap.add_argument("--front-video", default=None)
     ap.add_argument("--config", default=os.path.join(APP_DIR, "app_config.json"))
     ap.add_argument("--login", action="store_true", help="đăng nhập API, tự làm mới token trong bộ nhớ")
+    ap.add_argument("--sync-config", action="store_true", help="nhận cấu hình qua Socket.IO (cần --login)")
     ap.add_argument("--events", default=os.path.join(APP_DIR, "out", "events.jsonl"))
     ap.add_argument("--metrics-out", default=os.path.join(APP_DIR, "out", "metrics.jsonl"))
     ap.add_argument("--outbox", default=os.path.join(APP_DIR, "out", "outbox.db"))
@@ -156,6 +157,8 @@ def main():
     ap.add_argument("--stream-rtsp-base", default="rtsp://127.0.0.1:8554")
     ap.add_argument("--ffmpeg", default="ffmpeg", help="đường dẫn FFmpeg có encoder libx264")
     a = ap.parse_args()
+    if a.sync_config and not a.login:
+        ap.error("--sync-config cần --login")
 
     model_cfg = json.load(open(os.path.join(HERE, "posture_config.json"), encoding="utf-8"))
     cfg = AppConfig(a.config, model_cfg)
@@ -166,6 +169,13 @@ def main():
         except (AuthError, EOFError):
             raise SystemExit("Đăng nhập không thành công; kiểm tra địa chỉ API và tài khoản") from None
     user_id = lambda: auth.user_id if auth else cfg["user_id"]
+    config_sync = None
+    if a.sync_config:
+        from config_sync import ConfigSync
+        try:
+            config_sync = ConfigSync(auth)
+        except ImportError:
+            raise SystemExit("Cài dependency bằng: python -m pip install -r posture_model/requirements.txt") from None
     sess = ort.InferenceSession(os.path.join(HERE, "posture_transformer.onnx"), providers=["CPUExecutionProvider"])
     WIN, FPS = model_cfg["window"], model_cfg["fps"]
     task = os.path.join(HERE, "pose_landmarker_full.task")
@@ -277,6 +287,9 @@ def main():
         stream.start()
         print("Live camera enabled:", a.stream_camera, "device:", elog.device_id)
 
+    if config_sync:
+        config_sync.start()
+
     while True:
         ok, fs = cap_s.read()
         if not ok:
@@ -315,6 +328,12 @@ def main():
         if now - last_cfg >= 2:
             last_cfg = now
             changed = cfg.reload()
+            remote = config_sync.take() if config_sync else None
+            if remote is not None:
+                try:
+                    changed |= cfg.apply_remote(remote)
+                except ValueError:
+                    print("Cấu hình máy chủ không hợp lệ; giữ cấu hình đang dùng")
             if changed:
                 apply_config(cfg, trackers, rem, pres)
                 if "camera_focal_px" in changed and ed is not None and cfg["camera_focal_px"]:
@@ -479,6 +498,8 @@ def main():
                 cal, base, tilt_base = start_calib(now), None, None
 
     # ---------------------------------------------------------------- kết thúc phiên
+    if config_sync:
+        config_sync.stop()
     if stream:
         stream.stop()
     evs = []
