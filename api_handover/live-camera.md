@@ -1,13 +1,15 @@
 # Video trực tiếp v1 — bổ sung độc lập với telemetry v1.5
 
-Quyết định ngày 15/10/2026: [tài liệu kiến trúc/hợp đồng/cách chạy/giới hạn tại BE nhánh triển khai](https://github.com/luongtan204/DoAnTotNghiep_BE/blob/feat/live-camera/docs/live-camera.md). **BE PR [#33](https://github.com/luongtan204/DoAnTotNghiep_BE/pull/33) đang mở**, chưa có camera trên BE main do kiểm thử Config còn lỗi chập chờn. Cần dùng BE nhánh đó để chạy luồng đã kiểm; sau khi merge, nguồn cập nhật là [docs/live-camera.md trên main](https://github.com/luongtan204/DoAnTotNghiep_BE/blob/main/docs/live-camera.md). Edge PR #4 đã merge `2874c29` nhưng streaming vẫn tắt mặc định. Hợp đồng OpenAPI v1.5 và batch/config/status không đổi; video không đi qua Socket.IO hoặc outbox.
+Cập nhật ngày 15/10/2026: **BE PR [#33](https://github.com/luongtan204/DoAnTotNghiep_BE/pull/33) đã merge main `ca32f7d`** sau Config PR #41/#42 và full reactor 315/315 (0 failure/error/skipped). Nguồn kiến trúc/hợp đồng/cách chạy/giới hạn: [docs/live-camera.md trên BE main](https://github.com/luongtan204/DoAnTotNghiep_BE/blob/main/docs/live-camera.md); danh mục API hiện hành là team-sync mục 4. Edge PR #4 đã merge `2874c29`, streaming tắt mặc định. OpenAPI v1.5 đóng băng để hồi quy, batch/config/status không đổi; video không đi qua Socket.IO hoặc outbox.
+
+Nguồn hình là capture trong **ứng dụng `KLTN_modelPosture/realtime_app.py`**, chủ dự án đã xác nhận. Publisher chạy cùng ứng dụng edge; BE không mở camera riêng. Chạy edge và BE cùng máy qua loopback chỉ chứng minh tích hợp phần mềm, chưa chứng minh mạng hai thiết bị.
 
 ## Chạy edge
 
 Cần BE có Auth media-token và MediaMTX 1.21.2, FFmpeg **9.0.2** có libx264, môi trường Python hiện có của app. Không thêm dependency Python. FFmpeg Windows essentials lấy từ Gyan (provider được FFmpeg giới thiệu), không dùng nightly; kiểm `ffmpeg -version`, release/checksum được ghi ở tài liệu BE. Binary ngoài Git; chưa đóng gói vào app.
 
 ```powershell
-python posture_model/realtime_app.py --side 1 --front 0 --stream-camera side --ffmpeg <absolute-path-to-ffmpeg>
+python -X utf8 posture_model/realtime_app.py --side 1 --front 0 --stream-camera side --ffmpeg <absolute-path-to-ffmpeg>
 ```
 
 - Không có `--stream-camera` thì không gửi video. Chọn side/front; front phải mở được. Chỉ một camera mỗi process; lấy từ capture sẵn có, trước overlay, không âm thanh.
@@ -34,4 +36,6 @@ python posture_model/check_live_stream.py --ffmpeg <path> --integration --second
 
 Integration đọc `API_EMAIL/API_PASSWORD` từ environment và BE/media localhost; chỉ gửi synthetic frames. Kiểm queue một frame/copy, publisher edge thật → MediaMTX → giải mã frame, token API/anonymous/sai device/sai action bị từ chối, stop không còn thread/process. `--seconds 125` kiểm đọc lại sau chu kỳ cấp lại token. Tại BE, `node dev/verify-camera.mjs` kiểm trình duyệt thật qua WHEP/ICE/H.264 và nút Dừng. Kết quả cuối và full reactor ghi trong tài liệu/PR/skill tiến độ BE.
 
-Chưa kiểm webcam vật lý/toàn bộ inference cùng telemetry/Socket.IO, LAN/NAT/TLS/TURN, chậm/mất mạng dài, FPS/CPU/RAM edge/soak/multi-viewer, thu hồi cứng và refresh API tự động. Không suy ra app camera đã kiểm hoàn chỉnh từ synthetic publisher. Thay đổi frame size phải đổi cả command FFmpeg và bộ đệm đầu vào; đổi quyền/path/TTL phải đồng bộ Auth, MediaMTX, publisher, viewer, docs và test.
+Đã chạy toàn ứng dụng side/capture/inference/telemetry cùng LivePublisher 135 giây: browser decode 640×360 ở giây 25 và 121 qua chu kỳ media token, stop đạt; 5 event + 3 metric đều gửi (8 sent/0 pending/0 dead), Socket.IO observer nhận OFFLINE của đúng device sau kết thúc phiên. Kiểm bằng publisher ứng dụng đang chạy: ở BE đặt `CAMERA_DEVICE_ID` và tùy chọn `CAMERA_NAME=side|front` rồi chạy `node dev/verify-camera.mjs`; script không phát synthetic khi có device này.
+
+Chưa kiểm front, hai máy/LAN/NAT/TLS/TURN, chậm/mất mạng dài, FPS/CPU/RAM edge/soak/multi-viewer, thu hồi cứng, refresh API tự động và client Socket.IO trong chính Python app. Media token tự cấp lại khác với API access token vẫn phải cập nhật thủ công. Không suy ra nghiệm thu thiết bị từ xa từ kiểm loopback. Thay đổi frame size phải đổi cả command FFmpeg và bộ đệm đầu vào; đổi quyền/path/TTL phải đồng bộ Auth, MediaMTX, publisher, viewer, docs và test.
