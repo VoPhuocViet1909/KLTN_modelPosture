@@ -1,11 +1,12 @@
 """
 Cấu hình chạy của Desktop App, đọc từ app_config.json và TỰ NẠP LẠI khi file thay đổi (không cần tắt app).
 
-Giai đoạn 3, Config Service trên server sẽ đẩy cấu hình mới xuống (WebSocket) và app chỉ việc ghi đè file này
--> cùng một đường nạp lại. Bây giờ có thể sửa tay file JSON để thử.
+--sync-config nhận toàn bộ cấu hình máy chủ vào overlay trong RAM; khóa bị xóa trở về cấu hình local.
+File local vẫn hot reload, không ghi secrets hoặc cấu hình máy chủ xuống file.
 """
 import copy
 import json
+import math
 import os
 
 from schema import validate
@@ -56,13 +57,14 @@ class AppConfig:
         self.path = path
         self.model_cfg = model_cfg or {}
         self.values = copy.deepcopy(DEFAULTS)
+        self.remote = {}
         self._mtime = None
         if not os.path.exists(path):
             self.save()                              # tạo file mẫu cho người dùng sửa
         self.reload(force=True)
 
     def __getitem__(self, k):
-        v = self.values.get(k)
+        v = self.remote[k] if k in self.remote else self.values.get(k)
         if v is None:                                # lấy mặc định của model nếu để null
             fallback = {"p_bad_threshold": "threshold", "shoulder_tilt_on": "shoulder_tilt_on",
                         "shoulder_tilt_off": "shoulder_tilt_off"}.get(k)
@@ -92,7 +94,7 @@ class AppConfig:
             return set()
         errs = validate("config", new)                # giá trị sai (âm, sai kiểu...) -> từ chối cả file
         if not errs:
-            candidate = {**self.values, **{k: v for k, v in new.items() if k in DEFAULTS}}
+            candidate = {**self.values, **{k: v for k, v in new.items() if k in DEFAULTS}, **self.remote}
             if candidate["distance_off_cm"] < candidate["distance_on_cm"]:
                 errs.append("distance_off_cm must be >= distance_on_cm")
             on, off = candidate["shoulder_tilt_on"], candidate["shoulder_tilt_off"]
@@ -109,6 +111,24 @@ class AppConfig:
                 self.values[k] = v
                 changed.add(k)
         return changed
+
+    def apply_remote(self, config):
+        """Full server snapshot; missing keys fall back to local config/model defaults. Memory only."""
+        if (not isinstance(config, dict) or set(config) - (set(DEFAULTS) - {"api_base_url", "api_token", "user_id"})
+                or any(isinstance(v, float) and not math.isfinite(v) for v in config.values())
+                or validate("config", config)):
+            raise ValueError("Invalid remote configuration")
+        candidate = {**self.values, **config}
+        if candidate["distance_off_cm"] < candidate["distance_on_cm"]:
+            raise ValueError("Invalid remote distance thresholds")
+        on, off = candidate["shoulder_tilt_on"], candidate["shoulder_tilt_off"]
+        on = self.model_cfg.get("shoulder_tilt_on") if on is None else on
+        off = self.model_cfg.get("shoulder_tilt_off") if off is None else off
+        if on is not None and off is not None and off > on:
+            raise ValueError("Invalid remote shoulder thresholds")
+        before = {k: self[k] for k in DEFAULTS}
+        self.remote = copy.deepcopy(config)
+        return {k for k in DEFAULTS if before[k] != self[k]}
 
     def snapshot(self):
         """Cấu hình đang dùng, gắn vào sự kiện gửi lên server."""

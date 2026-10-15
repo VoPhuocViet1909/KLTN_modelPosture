@@ -38,7 +38,7 @@ Integration đọc `API_EMAIL/API_PASSWORD` từ environment và BE/media localh
 
 Đã chạy toàn ứng dụng side/capture/inference/telemetry cùng LivePublisher 135 giây: browser decode 640×360 ở giây 25 và 121 qua chu kỳ media token, stop đạt; 5 event + 3 metric đều gửi (8 sent/0 pending/0 dead), Socket.IO observer nhận OFFLINE của đúng device sau kết thúc phiên. Kiểm bằng publisher ứng dụng đang chạy: ở BE đặt `CAMERA_DEVICE_ID` và tùy chọn `CAMERA_NAME=side|front` rồi chạy `node dev/verify-camera.mjs`; script không phát synthetic khi có device này.
 
-Chưa kiểm front, hai máy/LAN/NAT/TLS/TURN, chậm/mất mạng dài, FPS/CPU/RAM edge/soak/multi-viewer, thu hồi cứng và client Socket.IO trong chính Python app. API refresh tự động đã có ở chế độ `--login`; media grant vẫn được cấp lại độc lập. Không suy ra nghiệm thu thiết bị từ xa từ kiểm loopback. Thay đổi frame size phải đổi cả command FFmpeg và bộ đệm đầu vào; đổi quyền/path/TTL phải đồng bộ Auth, MediaMTX, publisher, viewer, docs và test.
+Chưa kiểm front, hai máy/LAN/NAT/TLS/TURN, chậm/mất mạng dài, FPS/CPU/RAM edge/soak/multi-viewer, thu hồi cứng và xử lý status trong chính Python app. Config Socket.IO đã có với `--sync-config`; API refresh tự động đã có ở chế độ `--login`; media grant vẫn được cấp lại độc lập. Không suy ra nghiệm thu thiết bị từ xa từ kiểm loopback. Thay đổi frame size phải đổi cả command FFmpeg và bộ đệm đầu vào; đổi quyền/path/TTL phải đồng bộ Auth, MediaMTX, publisher, viewer, docs và test.
 
 ## Đăng nhập và refresh API (15/10/2026)
 
@@ -58,3 +58,41 @@ Nếu refresh bị từ chối, mất mạng hoặc mất response sau khi máy 
 Kiểm chứng: check stdlib đạt refresh đồng thời 24 lời gọi/12 thread chỉ một refresh, xoay token lần kế tiếp, 401 retry một lần, refresh bị thu hồi/mất response không replay, outbox pending và chặn đổi origin/redirect/đổi user; test_phase2 7/7, test_alerts 10/10, bounded queue check đạt. Toàn app `--login` side chạy 40 giây qua Gateway/BE thật; ép thời hạn nội bộ phiên về 0 để thực sự gọi refresh (không đổi TTL BE), browser decode 640×360 và Dừng đạt, app exit 0, outbox 2 sent/0 pending/0 dead. Bằng chứng local ngoài Git: `tools/camera-check/edge-login-vh4t94tj`. Chưa đợi hết 900 giây thực, chưa kiểm hai máy/LAN/front hoặc refresh với BE outage thật.
 
 Nguồn chính thức kiểm HTTP 200 ngày 15/10/2026: Python 3.11 [urllib.request](https://docs.python.org/3.11/library/urllib.request.html), [threading](https://docs.python.org/3.11/library/threading.html), [getpass](https://docs.python.org/3.11/library/getpass.html). Dùng stdlib trong runtime hiện có, không thay version; hợp đồng Auth theo team-sync mục 4.1.
+
+## Đồng bộ cấu hình máy chủ (15/10/2026)
+
+Cài `python -m pip install -r posture_model/requirements.txt`, rồi thêm `--login --sync-config` vào lệnh chạy. Opt-in, không tự bật khi chỉ truyền hình. Worker lấy `GET /api/v1/config/me` lúc khởi động, sau mỗi reconnect và khi Socket.IO báo `config`; dùng WebSocket qua Gateway, JWT trong auth CONNECT, không trong URL. Không bật polling, logger hoặc redirect WebSocket. Sau khi server ngắt do JWT hết hạn, vòng reconnect lấy token mới từ phiên dùng chung; chưa đợi 900 giây thật để kiểm việc này.
+
+Push chỉ đánh thức worker để GET bản hiện hành, tránh ghi đè snapshot mới bằng push cũ khi hai nguồn đến lệch nhau. Một snapshot mới nhất chờ trong RAM; camera áp dụng ở lượt kiểm config mỗi ~2 giây, phát `CONFIG_APPLIED` qua telemetry. Toàn bộ snapshot thay overlay trước đó; khóa bị bỏ quay về file local/mặc định model. Overlay ưu tiên hơn local, không ghi vào file và không lưu qua restart. Khi lỗi mạng, giữ cấu hình hợp lệ gần nhất và retry 5 giây; chưa có cache cấu hình máy chủ trên đĩa.
+
+Validate schema, khóa lạ, số không hữu hạn và cặp ngưỡng trước khi áp dụng; từ chối `api_base_url`, `api_token`, `user_id` từ server. File local vẫn hot reload; khi phối hợp local/remote làm cặp ngưỡng sai, giữ bản hợp lệ trước đó. Edge không xử lý sự kiện `status` dành cho Dashboard. Không đổi hợp đồng BE; nguồn team-sync mục 4.4/4.7.
+
+```powershell
+python -X utf8 posture_model/check_config_sync.py
+# Tài khoản test không thuộc org; credentials cấp qua environment, không đặt trong argv.
+python -X utf8 posture_model/check_config_sync.py --integration
+```
+
+Check local đạt thay toàn bộ/reset/local reload/validation/không ghi file; integration Gateway thật đạt startup GET, nhận config Socket.IO, khôi phục cập nhật bị lỡ và GET sau reconnect, hoàn nguyên config user. Toàn app `--login --sync-config` side 40 giây: push `alert_sec=23` tạo `CONFIG_APPLIED`, video browser 640×360/stop đạt, exit 0, outbox 4 sent/0 pending/0 dead; config test đã hoàn nguyên. Bằng chứng local `tools/camera-check/edge-config-gldslqpl`. Auth check/phase2 7/7/alerts 10/10 đạt. Chưa kiểm front, hai máy/LAN, mất mạng dài, CPU/RAM/FPS/latency hoặc soak; không coi bài 40 giây là nghiệm thu tải.
+
+Dependency được chọn theo research-tech-stack ngày 15/10/2026: `python-socketio[client]==5.17.0` stable phát hành 14/09/2026, MIT, Python >=3.8; Python 3.11 hiện tại đáp ứng cả bidict >=3.11. Thư viện chính thức hỗ trợ Socket.IO 3/4, Engine.IO 4; tránh tự viết giao thức. Nguồn maintainer HTTP 200: [ma trận tương thích](https://raw.githubusercontent.com/miguelgrinberg/python-socketio/main/docs/intro.rst), [client](https://raw.githubusercontent.com/miguelgrinberg/python-socketio/main/docs/client.rst), [release metadata](https://pypi.org/pypi/python-socketio/5.17.0/json). ReadTheDocs trả 403 trong lần kiểm nên đối chiếu mã nguồn tài liệu maintainer. Không thay dependency cũ của app hoặc BE; chỉ cài vào venv kiểm ngoài Git.
+
+Các version được resolver cài mới trong venv; metadata maintainer PyPI đều HTTP 200 ngày 15/10, stable mới nhất lúc kiểm:
+
+| Thành phần | Version kiểm | Giấy phép | Nguồn |
+| --- | --- | --- | --- |
+| python-socketio | 5.17.0 | MIT | [metadata](https://pypi.org/pypi/python-socketio/5.17.0/json) |
+| python-engineio | 4.14.0 | MIT | [metadata](https://pypi.org/pypi/python-engineio/4.14.0/json) |
+| websocket-client | 1.9.2 | Apache-2.0 | [metadata](https://pypi.org/pypi/websocket-client/1.9.2/json) |
+| bidict | 0.24.1 | MPL-2.0 | [metadata](https://pypi.org/pypi/bidict/0.24.1/json) |
+| requests | 2.34.2 | Apache-2.0 | [metadata](https://pypi.org/pypi/requests/2.34.2/json) |
+| simple-websocket | 1.1.0 | MIT (classifier package) | [metadata](https://pypi.org/pypi/simple-websocket/1.1.0/json) |
+| charset-normalizer | 3.5.2 | MIT | [metadata](https://pypi.org/pypi/charset-normalizer/3.5.2/json) |
+| idna | 3.20 | BSD-3-Clause | [metadata](https://pypi.org/pypi/idna/3.20/json) |
+| urllib3 | 2.8.0 | MIT | [metadata](https://pypi.org/pypi/urllib3/2.8.0/json) |
+| wsproto | 1.3.2 | MIT | [metadata](https://pypi.org/pypi/wsproto/1.3.2/json) |
+| h11 | 0.16.0 | MIT | [metadata](https://pypi.org/pypi/h11/0.16.0/json) |
+
+Resolution/import và kiểm tích hợp đạt. `pip check` của venv dùng system-site-packages còn báo xung đột có sẵn: torch 2.14.0 cần setuptools >=77.0.3 nhưng đang 65.5.0; chưa sửa môi trường torch ngoài phạm vi, không tuyên bố toàn venv sạch. Manifest ghim dependency trực tiếp Socket.IO; chưa khóa toàn bộ dependency/transitive hoặc đóng gói app.
+
+Kiểm gửi bù bổ sung: tiêm URLError tại HTTP opener của client (không dừng BE/mạng thật), hai event giữ nguyên ID/pending trong SQLite; phục hồi opener và gửi qua Gateway thật đạt 2 sent/0 pending/dead. Lượt shell thiếu `-X utf8` lỗi khi in tiếng Việt, chạy lại với UTF-8 đạt; không thay runtime/version.

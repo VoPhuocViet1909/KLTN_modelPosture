@@ -74,9 +74,11 @@ class ApiSession:
         return self.base_url, self.token()
 
     def open(self, request, timeout=5):
-        # Only the two existing safe-to-replay operations use this helper.
-        if request.full_url not in (self.base_url + "/api/v1/telemetry/batch",
-                                    self.base_url + "/api/v1/auth/media-token"):
+        # Only explicitly allowed safe-to-replay operations use this helper.
+        if (request.full_url, request.get_method()) not in (
+                (self.base_url + "/api/v1/telemetry/batch", "POST"),
+                (self.base_url + "/api/v1/auth/media-token", "POST"),
+                (self.base_url + "/api/v1/config/me", "GET")):
             raise AuthError("Authenticated request outside session scope")
         token = self.token()
         request.add_header("Authorization", "Bearer " + token)

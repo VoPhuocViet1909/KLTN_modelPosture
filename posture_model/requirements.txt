@@ -3,3 +3,4 @@ opencv-python
 onnxruntime
 numpy
 plyer
+python-socketio[client]==5.17.0
