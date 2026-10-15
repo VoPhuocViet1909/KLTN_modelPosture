@@ -1,6 +1,6 @@
 # Video trực tiếp v1 — bổ sung độc lập với telemetry v1.5
 
-Quyết định ngày 15/10/2026: [tài liệu kiến trúc/hợp đồng/cách chạy/giới hạn đầy đủ tại BE](https://github.com/luongtan204/DoAnTotNghiep_BE/blob/main/docs/live-camera.md). Đây là nguồn cần đọc trước khi sửa streaming. Hợp đồng OpenAPI v1.5 và batch/config/status hiện có không đổi; video không đi qua Socket.IO hoặc outbox.
+Quyết định ngày 15/10/2026: [tài liệu kiến trúc/hợp đồng/cách chạy/giới hạn tại BE nhánh triển khai](https://github.com/luongtan204/DoAnTotNghiep_BE/blob/feat/live-camera/docs/live-camera.md). **BE PR [#33](https://github.com/luongtan204/DoAnTotNghiep_BE/pull/33) đang mở**, chưa có camera trên BE main do kiểm thử Config còn lỗi chập chờn. Cần dùng BE nhánh đó để chạy luồng đã kiểm; sau khi merge, nguồn cập nhật là [docs/live-camera.md trên main](https://github.com/luongtan204/DoAnTotNghiep_BE/blob/main/docs/live-camera.md). Edge PR #4 đã merge `2874c29` nhưng streaming vẫn tắt mặc định. Hợp đồng OpenAPI v1.5 và batch/config/status không đổi; video không đi qua Socket.IO hoặc outbox.
 
 ## Chạy edge
 
