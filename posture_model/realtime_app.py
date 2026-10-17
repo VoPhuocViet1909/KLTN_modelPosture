@@ -1,5 +1,6 @@
 """
 Desktop App – giai đoạn 1 (bản đầy đủ của realtime_posture.py, file cũ giữ nguyên để so sánh).
+Đây là điểm vào dòng lệnh (CLI, cửa sổ OpenCV); lõi xử lý nằm ở engine.py (PostureEngine). Giao diện Qt: app.py.
 
   Cam hông 90°  -> Pose -> góc cổ/thân -> Transformer ONNX -> median -> AlertTracker NECK_TRUNK
   Cam laptop    -> Pose -> công thức lệch vai         -> median -> AlertTracker SHOULDER_TILT
@@ -15,52 +16,18 @@ Phím: q = thoát, c = hiệu chỉnh lại. Sửa app_config.json khi app đang
 """
 import argparse
 import getpass
-import collections
-import json
 import os
-import sys
-import time
 
 os.environ.setdefault("OPENCV_LOG_LEVEL", "OFF")
 import cv2
 import numpy as np
-import onnxruntime as ort
 
-from alerts import AlertTracker, EventLog, PresenceTracker, Reminders
-from app_config import AppConfig
-from distance import EyeDistance
-from metrics import MetricsAggregator
-from quality import ANGLE_KEYS, angles_ok, dist_ok
-from notifier import Notifier, ascii_vi
-from outbox import Outbox
-from sender import Sender
 from api_session import ApiSession, AuthError
-from live_stream import LivePublisher
-from posture_features import (FEATURES, apply_calibration, calibration_baseline, choose_side, facing_sign,
-                              rula_frame_label, sequence_angles, shoulder_tilt, to_model_input)
-from realtime_posture import PoseDetector, draw_front, draw_side, hstack
+from engine import APP_DIR, EngineError, EngineOptions, PostureEngine, load_config
+from notifier import ascii_vi
+from realtime_posture import hstack
 
-HERE = os.path.dirname(os.path.abspath(__file__))                       # model, file .task (đi kèm app)
-APP_DIR = os.path.dirname(sys.executable) if getattr(sys, "frozen", False) else HERE   # cấu hình, sự kiện (ghi được)
 SEV_COL = {"LOW": (0, 200, 255), "MEDIUM": (0, 140, 255), "HIGH": (0, 0, 255)}
-
-
-def apply_config(cfg, trackers, rem, pres):
-    for t in trackers:
-        t.configure(alert_sec=cfg["alert_sec"], clear_sec=cfg["clear_sec"],
-                    repeat_sec=cfg["repeat_sec"], cooldown_sec=cfg["cooldown_sec"])
-    rem.configure(sit_limit_min=cfg["sit_limit_min"], sit_repeat_min=cfg["sit_repeat_min"],
-                  eye_break_min=cfg["eye_break_min"])
-    pres.away_sec = cfg["away_sec"]
-
-
-def draw_distance(frame, cm, status):
-    if frame is None:
-        return
-    txt = f"cach man hinh {cm:.0f} cm" if np.isfinite(cm) else "cach man hinh: --"
-    col = {"CANH BAO": (0, 0, 255), "BAD": (0, 165, 255)}.get(status, (255, 255, 255))
-    cv2.rectangle(frame, (0, 90), (frame.shape[1], 130), (30, 30, 30), -1)
-    cv2.putText(frame, txt, (15, 120), 0, 0.8, col, 2)
 
 
 def _local_hms(iso_ts):
@@ -136,6 +103,29 @@ def draw_overlay(img, banner, sitting_sec, away, sync=""):
     return img
 
 
+class CvViewer:
+    """Cửa sổ OpenCV cũ, gắn vào engine qua engine.viewer.show(...) (chạy trong luồng của engine)."""
+
+    def __init__(self, show_meta=True):
+        self.show_meta = show_meta
+        self.sync_txt, self.ob_stats = "", {}
+
+    def show(self, eng, vis_s, vis_f, frame_i):
+        if frame_i % 30 == 1:                             # cập nhật trạng thái gửi ~1 lần/giây (đọc SQLite)
+            self.sync_txt = eng.sender.status_text()
+            self.ob_stats = eng.outbox.stats()
+        img = draw_overlay(hstack(vis_s, vis_f), eng.notifier.active_banner(), eng.sitting_sec(), eng.away,
+                           self.sync_txt)
+        if self.show_meta:
+            img = np.hstack([img, draw_meta_panel(img.shape[0], eng.elog, eng.snap, eng.last_metric,
+                                                  self.ob_stats, self.sync_txt)])
+        cv2.imshow("Posture monitor", img)
+        k = cv2.waitKey(1) & 0xFF
+        if k == ord("m"):
+            self.show_meta = not self.show_meta
+        return k
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--side", default="1", help="cam hông ~90°: số webcam hoặc link điện thoại")
@@ -160,15 +150,13 @@ def main():
     if a.sync_config and not a.login:
         ap.error("--sync-config cần --login")
 
-    model_cfg = json.load(open(os.path.join(HERE, "posture_config.json"), encoding="utf-8"))
-    cfg = AppConfig(a.config, model_cfg)
+    cfg, model_cfg = load_config(a.config)
     auth = None
     if a.login:
         try:
             auth = ApiSession(cfg["api_base_url"], input("API email: ").strip(), getpass.getpass("API password: "))
         except (AuthError, EOFError):
             raise SystemExit("Đăng nhập không thành công; kiểm tra địa chỉ API và tài khoản") from None
-    user_id = lambda: auth.user_id if auth else cfg["user_id"]
     config_sync = None
     if a.sync_config:
         from config_sync import ConfigSync
@@ -176,359 +164,20 @@ def main():
             config_sync = ConfigSync(auth)
         except ImportError:
             raise SystemExit("Cài dependency bằng: python -m pip install -r posture_model/requirements.txt") from None
-    sess = ort.InferenceSession(os.path.join(HERE, "posture_transformer.onnx"), providers=["CPUExecutionProvider"])
-    WIN, FPS = model_cfg["window"], model_cfg["fps"]
-    task = os.path.join(HERE, "pose_landmarker_full.task")
 
-    # ---------------------------------------------------------------- camera
-    use_video = a.side_video is not None
-    src = lambda v: int(v) if str(v).lstrip("-").isdigit() else v
-
-    def open_cam(v):
-        v = src(v)
-        if isinstance(v, str):
-            c = cv2.VideoCapture(v)
-            c.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-            return c
-        for api in (cv2.CAP_DSHOW, cv2.CAP_MSMF, cv2.CAP_ANY):
-            c = cv2.VideoCapture(v, api)
-            if c.isOpened():
-                for _ in range(15):
-                    ok, fr = c.read()
-                    if ok and fr is not None:
-                        return c
-                    time.sleep(0.1)
-            c.release()
-        return cv2.VideoCapture(v)
-
-    cap_s = cv2.VideoCapture(a.side_video) if use_video else open_cam(a.side)
-    if not cap_s.isOpened():
-        raise SystemExit("Không mở được cam hông")
-    cap_f = None
-    if a.front_video or (not use_video and src(a.front) != -1):
-        cap_f = cv2.VideoCapture(a.front_video) if a.front_video else open_cam(a.front)
-        if not cap_f.isOpened():
-            print("Không mở được cam laptop -> chỉ chạy nhánh cổ/thân")
-            cap_f = None
-    det_s = PoseDetector(task)
-    det_f = PoseDetector(task) if cap_f is not None else None
-    ed = None
-    if cap_f is not None:
-        ed = EyeDistance(os.path.join(HERE, "face_landmarker.task"), cfg["camera_hfov_deg"], use_face=not a.no_face)
-        ed.focal = cfg["camera_focal_px"]
-    vid_fps = cap_s.get(cv2.CAP_PROP_FPS) or 30
-
-    # ---------------------------------------------------------------- cảnh báo + sự kiện
-    tr_neck, tr_tilt, tr_dist = AlertTracker("NECK_TRUNK"), AlertTracker("SHOULDER_TILT"), AlertTracker("TOO_CLOSE")
-    trackers = (tr_neck, tr_tilt, tr_dist)
-    pres, rem = PresenceTracker(), Reminders()
-    apply_config(cfg, trackers, rem, pres)
-    notifier = Notifier(cfg)
-    elog = EventLog(a.events, model_cfg.get("version"), wall_t0=time.time(), user_id=user_id(),
-                    listeners=[notifier])
-
-    # ---------------------------------------------------------------- gửi dữ liệu (giai đoạn 2)
-    outbox = Outbox(a.outbox)
-    sender = Sender(outbox, cfg["api_base_url"], cfg["api_token"], elog.device_id,
-                    interval=cfg["batch_interval_sec"], batch_max=cfg["batch_max"], auth=auth)
-    os.makedirs(os.path.dirname(os.path.abspath(a.metrics_out)), exist_ok=True)
-    metrics_f = open(a.metrics_out, "a", encoding="utf-8")
-
-    last_metric = [None]                              # để bảng METADATA hiện bản metrics mới nhất
-
-    def on_metric(m):
-        last_metric[0] = m
-        metrics_f.write(json.dumps(m, ensure_ascii=False) + "\n")
-        metrics_f.flush()
-        sender.enqueue_metric(m)
-
-    agg = MetricsAggregator(on_metric, elog.wall_t0, elog.session_id, elog.device_id, user_id(),
-                            window_sec=cfg["metrics_window_sec"], model_version=model_cfg.get("version"),
-                            app_version=EventLog.APP_VERSION)
-    elog.listeners += [sender.enqueue_event, agg.on_event]
-    sender.start()
-    elog.emit(dict(eventType="SESSION_START", t=0.0, frontCam=cap_f is not None,
-                   distanceMethod=None if ed is None else ("iris" if ed.det else "ipd")), config=cfg.snapshot())
-    snap = dict(pBad=None, neck=None, trunk=None, headPitch=None, rulaB=None, tiltRel=None, distanceCm=None)
-
-    def emit(events):
-        if events:
-            elog.emit_all(events, snapshot=snap, config=cfg.snapshot())
-
-    logf = open(a.log, "w", encoding="utf-8") if a.log else None
-    if logf:
-        logf.write("time,posture,p_bad," + ",".join(FEATURES) + ",rula_b,shoulder,tilt_rel,distance_cm,distance\n")
-
-    def start_calib(now=None):
-        evs = []
-        for t in trackers:
-            evs += t.reset(now, "RECALIBRATE")
-        emit(evs)
-        return dict(L=[], W=[], tilt=[], dpx=[], dkind=[], t0=None)
-
-    cal, side, f, base, tilt_base = start_calib(), None, None, None, None
-    buf = collections.deque(maxlen=WIN)
-    p_hist, t_hist, d_hist = (collections.deque(maxlen=5) for _ in range(3))     # median filter 5 kết quả
-    p_med, t_med, d_med, ang, rula_lab = 0.0, np.nan, np.nan, None, None
-    last_s = last_f = last_cfg = -1e9
-    Ls_draw = Lf_draw = None
-    frame_i, t_start, miss, now = 0, time.time(), 0, 0.0
-    sync_txt = ""
-    ob_stats = {}
-    show_meta = not a.hide_meta
-
-    stream = None
-    if a.stream_camera:
-        if a.stream_camera == "front" and cap_f is None:
-            raise SystemExit("Camera front chưa mở; không thể truyền hình")
-        stream = LivePublisher(lambda: auth.credentials(cfg["api_base_url"]) if auth else
-                               (cfg["api_base_url"], cfg["api_token"]), elog.device_id,
-                               a.stream_camera, a.stream_rtsp_base, a.ffmpeg, auth=auth)
-        stream.start()
-        print("Live camera enabled:", a.stream_camera, "device:", elog.device_id)
-
-    if config_sync:
-        config_sync.start()
-
-    while True:
-        ok, fs = cap_s.read()
-        if not ok:
-            if use_video:
-                break
-            miss += 1
-            if miss > 100:
-                print("Mất hình cam hông quá lâu, thoát.")
-                break
-            time.sleep(0.03)
-            continue
-        miss = 0
-        ff = None
-        if cap_f is not None:
-            okf, ff = cap_f.read()
-            if not okf:
-                ff = None
-        frame_i += 1
-        if stream:
-            stream.submit(fs if a.stream_camera == "side" else ff)
-        now = (frame_i / vid_fps) if use_video else (time.time() - t_start)
-        if a.max_sec and now > a.max_sec:
-            break
-        ts = int(now * 1000)
-        sample_s = now - last_s >= 1.0 / FPS
-        sample_f = ff is not None and now - last_f >= 1.0 / FPS
-        Ls, Ws = det_s(fs, ts) if sample_s else (None, None)
-        Lf = det_f(ff, ts)[0] if sample_f else None
-        dpx, dkind = (ed.measure(ff, ts, Lf) if (sample_f and ed is not None) else (np.nan, None))
-        if sample_s:
-            last_s, Ls_draw = now, Ls
-        if sample_f:
-            last_f, Lf_draw = now, Lf
-
-        # ------------------------------------------------ nạp lại cấu hình mỗi 2 giây
-        if now - last_cfg >= 2:
-            last_cfg = now
-            changed = cfg.reload()
-            remote = config_sync.take() if config_sync else None
-            if remote is not None:
-                try:
-                    changed |= cfg.apply_remote(remote)
-                except ValueError:
-                    print("Cấu hình máy chủ không hợp lệ; giữ cấu hình đang dùng")
-            if changed:
-                apply_config(cfg, trackers, rem, pres)
-                if "camera_focal_px" in changed and ed is not None and cfg["camera_focal_px"]:
-                    ed.focal = cfg["camera_focal_px"]
-                elog.user_id = agg.user_id = user_id()
-                if changed & {"api_base_url", "api_token", "batch_interval_sec", "batch_max"}:
-                    sender.configure(cfg["api_base_url"], cfg["api_token"], cfg["batch_interval_sec"], cfg["batch_max"])
-                if "metrics_window_sec" in changed:
-                    agg.flush()
-                    agg.window = int(cfg["metrics_window_sec"])
-                elog.emit(dict(eventType="CONFIG_APPLIED", t=now, changedKeys=sorted(changed)), config=cfg.snapshot())
-                print("Đã áp dụng cấu hình mới:", sorted(changed))
-
-        if base is None:  # ============================================ hiệu chỉnh
-            if cal["t0"] is None:
-                cal["t0"] = now
-            if Ls is not None:
-                cal["L"].append(Ls)
-                cal["W"].append(Ws)
-            if Lf is not None:
-                cal["tilt"].append(shoulder_tilt(Lf))
-            if dkind:
-                cal["dpx"].append(dpx)
-                cal["dkind"].append(dkind)
-            left = cfg["calib_sec"] - (now - cal["t0"])
-            if left <= 0:
-                if len(cal["L"]) < 10:
-                    print("Cam hông không thấy người đủ lâu, hiệu chỉnh lại.")
-                    cal = start_calib()
-                else:
-                    Lc, Wc = np.stack(cal["L"]), np.stack(cal["W"])
-                    side = choose_side(Lc, Wc)
-                    f = facing_sign(Lc, side)
-                    base = calibration_baseline(sequence_angles(Lc, side, f))
-                    tilts = np.array(cal["tilt"], float)
-                    tilt_base = float(np.nanmedian(tilts)) if np.isfinite(tilts).sum() >= 5 else None
-                    dist_base = np.nan
-                    if ed is not None:
-                        med_px = ed.calibrate(cal["dpx"], cal["dkind"], cfg["calib_distance_cm"])
-                        if med_px is not None:
-                            dist_base = ed.to_cm(med_px, ed.kind, ff.shape[1] if ff is not None else 640)
-                    elog.emit(dict(eventType="CALIBRATED", t=now, side="left" if side == 0 else "right",
-                                   baseline={"neck": round(base["neck"], 2), "trunk": round(base["trunk"], 2),
-                                             "headPitch": round(base["head_pitch"], 2)},
-                                   shoulderTiltBase=None if tilt_base is None else round(tilt_base, 2),
-                                   distanceCm=None if not np.isfinite(dist_base) else round(dist_base, 1),
-                                   distanceMethod=None if ed is None else ed.kind,
-                                   focalPx=None if ed is None or not ed.focal else round(ed.focal, 1)))
-                    print(f"Hiệu chỉnh xong: phía {'trái' if side == 0 else 'phải'}, baseline",
-                          {k: round(v, 1) for k, v in base.items()},
-                          "| lệch vai:", None if tilt_base is None else round(tilt_base, 1),
-                          "| khoảng cách:", None if not np.isfinite(dist_base) else f"{dist_base:.0f} cm")
-                    buf.clear(); p_hist.clear(); t_hist.clear(); d_hist.clear()
-                    if rem.sit_start is None:
-                        rem.start(now)
-            lc = max(left, 0)
-            vis_s = draw_side(fs, Ls_draw, side, "...", 0, None, None, calib_left=lc)
-            vis_f = draw_front(ff, Lf_draw, "...", None, calib_left=lc) if ff is not None else None
-
-        else:  # ========================================================= theo dõi
-            # ---- có mặt / vắng mặt
-            if sample_s or sample_f:
-                present = (Ls is not None) or (Lf is not None) or (dkind is not None)
-                pevs = pres.update(present, now)
-                for e in pevs:
-                    if e["eventType"] == "USER_AWAY":
-                        for t in trackers:
-                            pevs = pevs + t.reset(now, "AWAY")
-                        rem.stop()
-                        buf.clear(); p_hist.clear(); t_hist.clear(); d_hist.clear()
-                    else:
-                        rem.start(now)
-                emit(pevs)
-
-            if not pres.away:
-                # ---- nhánh 1: cổ / thân
-                if sample_s:
-                    c = None
-                    if Ls is not None:
-                        c = apply_calibration(sequence_angles(Ls[None], side, f), base)
-                        if not angles_ok({k: float(c[0, FEATURES.index(k)]) for k in ANGLE_KEYS}):
-                            c = None                      # góc phi lý = bắt sai điểm khớp -> coi như không thấy
-                    if c is not None:
-                        ang = {k: float(c[0, i]) for i, k in enumerate(FEATURES)}
-                        rula_lab, _ = rula_frame_label(c[0])
-                        buf.append(to_model_input(c)[0])
-                    else:
-                        ang = rula_lab = None
-                        buf.append(np.zeros(len(FEATURES), np.float32))
-                    if len(buf) == WIN:
-                        logit = sess.run(None, {"x": np.stack(buf)[None]})[0][0]
-                        p_hist.append(1 / (1 + np.exp(-logit)))
-                        p_med = float(np.median(p_hist))
-                        thr, hy = cfg["p_bad_threshold"], cfg["p_bad_hysteresis"]
-                        bad = True if p_med >= thr + hy else False if p_med <= thr - hy else None
-                        if ang:
-                            snap.update(neck=ang["neck"], trunk=ang["trunk"], headPitch=ang["head_pitch"])
-                        snap.update(pBad=p_med, rulaB=None if rula_lab is None or not np.isfinite(rula_lab) else int(rula_lab))
-                        emit(tr_neck.update(bad, now))
-
-                # ---- nhánh 2: lệch vai
-                if sample_f and tilt_base is not None:
-                    tv = shoulder_tilt(Lf) if Lf is not None else np.nan
-                    if np.isfinite(tv):
-                        t_hist.append(tv - tilt_base)
-                    if t_hist:
-                        t_med = float(np.median(t_hist))
-                        on, off = cfg["shoulder_tilt_on"], cfg["shoulder_tilt_off"]
-                        bad = True if abs(t_med) > on else False if abs(t_med) < off else None
-                        snap["tiltRel"] = t_med
-                        emit(tr_tilt.update(bad if np.isfinite(tv) else None, now))
-
-                # ---- nhánh 3: khoảng cách mắt – màn hình
-                if sample_f and ed is not None:
-                    cm = ed.to_cm(dpx, dkind, ff.shape[1])
-                    cm_ok = dist_ok(float(cm))            # ngoài 20–150 cm = đo sai, bỏ mẫu
-                    if cm_ok:
-                        d_hist.append(cm)
-                    if d_hist:
-                        d_med = float(np.median(d_hist))
-                        on, off = cfg["distance_on_cm"], cfg["distance_off_cm"]
-                        bad = True if d_med < on else False if d_med > off else None
-                        snap["distanceCm"] = round(d_med, 1)
-                        emit(tr_dist.update(bad if cm_ok else None, now))
-
-                # ---- nhắc nghỉ
-                emit(rem.update(now))
-
-            if sample_s:                                  # cùng mẫu với log.csv -> gộp metrics 60 giây
-                agg.add(now, present=not pres.away and (Ls is not None or Lf is not None),
-                        neck_status=tr_neck.status, p_bad=p_med if len(buf) == WIN else None, ang=ang,
-                        tilt_rel=t_med if tilt_base is not None else None,
-                        tilt_status=tr_tilt.status if tilt_base is not None else None,
-                        dist_cm=d_med if ed is not None else None,
-                        dist_status=tr_dist.status if ed is not None else None)
-            if logf and sample_s:
-                logf.write(f"{now:.2f},{tr_neck.status},{p_med:.3f},"
-                           + ",".join(f"{ang[k]:.2f}" if ang else "" for k in FEATURES)
-                           + f",{rula_lab},{tr_tilt.status if tilt_base is not None else ''},{t_med:.2f}"
-                           + f",{d_med:.1f},{tr_dist.status if ed is not None else ''}\n")
-            vis_s = draw_side(fs, Ls_draw, side, "..." if pres.away else tr_neck.status, p_med, ang, rula_lab)
-            vis_f = None
-            if ff is not None:
-                vis_f = draw_front(ff, Lf_draw, tr_tilt.status if tilt_base is not None and not pres.away else "...", t_med)
-                draw_distance(vis_f, d_med, tr_dist.status)
-
-        if not a.no_gui:
-            if frame_i % 30 == 1:                         # cập nhật trạng thái gửi ~1 lần/giây (đọc SQLite)
-                sync_txt = sender.status_text()
-                ob_stats = outbox.stats()
-            img = draw_overlay(hstack(vis_s, vis_f), notifier.active_banner(), rem.sitting_sec(now), pres.away,
-                               sync_txt)
-            if show_meta:
-                img = np.hstack([img, draw_meta_panel(img.shape[0], elog, snap, last_metric[0], ob_stats, sync_txt)])
-            cv2.imshow("Posture monitor", img)
-            k = cv2.waitKey(1) & 0xFF
-            if k == ord("q"):
-                break
-            if k == ord("m"):
-                show_meta = not show_meta
-            if k == ord("c"):
-                cal, base, tilt_base = start_calib(now), None, None
-
-    # ---------------------------------------------------------------- kết thúc phiên
-    if config_sync:
-        config_sync.stop()
-    if stream:
-        stream.stop()
-    evs = []
-    for t in trackers:
-        evs += t.reset(now, "SESSION_END")
-    emit(evs)
-    elog.emit(dict(eventType="SESSION_END", t=now, durationSec=round(now, 1),
-                   alertCount={t.alert_type: t.count for t in trackers}))
-    elog.close()
-    agg.flush()                                       # cửa sổ metrics cuối (chưa đủ 60 giây)
-    metrics_f.close()
-    sender.stop(timeout=None)                         # Chờ worker xong trước khi đóng SQLite, kể cả refresh.
-    st = outbox.stats()
-    outbox.close()
-    print(f"Outbox: đã gửi {st['sent']}, còn chờ {st['pending']}, bị từ chối {st['dead']}")
-    for d in (det_s, det_f, ed):                     # đóng model MediaPipe trước khi Python thoát (tránh lỗi __del__)
-        try:
-            if d is not None and d.det is not None and hasattr(d.det, "close"):
-                d.det.close()
-        except Exception:
-            pass
-    cap_s.release()
-    if cap_f is not None:
-        cap_f.release()
-    if not a.no_gui:
-        cv2.destroyAllWindows()
-    if logf:
-        logf.close()
-    print("Sự kiện đã ghi vào", a.events)
+    opts = EngineOptions(side=a.side, front=a.front, side_video=a.side_video, front_video=a.front_video,
+                         config=a.config, events=a.events, metrics_out=a.metrics_out, outbox=a.outbox, log=a.log,
+                         no_face=a.no_face, max_sec=a.max_sec, stream_camera=a.stream_camera,
+                         stream_rtsp_base=a.stream_rtsp_base, ffmpeg=a.ffmpeg)
+    viewer = None if a.no_gui else CvViewer(show_meta=not a.hide_meta)
+    engine = PostureEngine(opts, cfg=cfg, model_cfg=model_cfg, auth=auth, config_sync=config_sync, viewer=viewer)
+    try:
+        engine.run()
+    except EngineError as e:
+        raise SystemExit(str(e)) from None
+    finally:
+        if viewer is not None:
+            cv2.destroyAllWindows()
 
 
 if __name__ == "__main__":

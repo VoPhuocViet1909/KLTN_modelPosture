@@ -43,7 +43,19 @@ def format_message(ev, cfg=None):
     return title, body
 
 
-class Notifier:
+class NotifierBase:
+    """Giao diện thông báo. Engine gọi notifier(ev) cho mỗi sự kiện từ EventLog (kể cả sự kiện không cần báo, lọc theo
+    ev['notify']). Bản OpenCV/plyer bên dưới (Notifier) dùng cho CLI; giao diện Qt có bản riêng (ui/qt_notifier.py)."""
+
+    def __call__(self, ev):
+        raise NotImplementedError
+
+    def active_banner(self):
+        """(tiêu đề, nội dung, mức) đang hiện hoặc None."""
+        return None
+
+
+class Notifier(NotifierBase):
     BANNER_SEC = 6
 
     def __init__(self, cfg):
