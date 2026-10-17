@@ -1,0 +1,44 @@
+{
+  "_source": "state + alert.label khớp GIT_frontend/src/lib/labels.ts (STATE_META, ALERT_LABEL, SEVERITY_LABEL), kiểm ngày 2026-10-18. alert.message lấy từ bảng 3.5 của TaiLieu/KeHoach_NgonNguThietKe.md. Đổi tên ở web thì chép lại đây.",
+  "state": {
+    "GOOD": {"label": "Ngồi đúng", "icon": "circle-check"},
+    "BAD": {"label": "Đang ngồi sai", "icon": "triangle-alert"},
+    "AWAY": {"label": "Vắng mặt", "icon": "moon"},
+    "OFFLINE": {"label": "Không kết nối", "icon": "circle-off"},
+    "CALIBRATING": {"label": "Đang hiệu chỉnh", "icon": "rotate-cw"}
+  },
+  "alert": {
+    "NECK_TRUNK": {
+      "label": "Cúi cổ, gù lưng",
+      "message": "Bạn đang cúi hoặc gù lưng. Ngồi thẳng, kéo vai ra sau nhé.",
+      "group": "posture", "icon": "triangle-alert"
+    },
+    "SHOULDER_TILT": {
+      "label": "Lệch vai",
+      "message": "Vai đang bị lệch. Cân lại hai vai, đặt hai tay đều lên bàn.",
+      "group": "posture", "icon": "triangle-alert"
+    },
+    "TOO_CLOSE": {
+      "label": "Ngồi quá gần màn hình",
+      "message": "Bạn đang cách màn hình {distanceCm} cm. Lùi ra ít nhất {limit} cm.",
+      "group": "posture", "icon": "triangle-alert"
+    },
+    "SIT_TOO_LONG": {
+      "label": "Ngồi quá lâu",
+      "message": "Bạn đã ngồi liên tục {sittingMin:.0f} phút. Đứng dậy đi lại 2–3 phút nhé.",
+      "group": "rest", "icon": "coffee"
+    },
+    "EYE_BREAK": {
+      "label": "Nghỉ mắt",
+      "message": "Nhìn một vật cách xa khoảng 6 m trong 20 giây.",
+      "group": "rest", "icon": "eye"
+    }
+  },
+  "severity": {"LOW": "Thấp", "MEDIUM": "Vừa", "HIGH": "Cao"},
+  "ui": {
+    "sync_ok": "Đang đồng bộ",
+    "sync_lost": "Mất kết nối, {n} bản chờ gửi",
+    "sync_local": "Chưa đăng nhập, không gửi dữ liệu",
+    "repeat_suffix": " (nhắc lần {level})"
+  }
+}

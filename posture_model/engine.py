@@ -151,10 +151,11 @@ class PostureEngine:
 
     def start(self):
         """Chạy trong luồng riêng. Lỗi khởi động báo qua listener.on_error."""
-        self._thread = threading.Thread(target=self._thread_main, name="PostureEngine", daemon=True)
+        self._thread = threading.Thread(target=self.run_guarded, name="PostureEngine", daemon=True)
         self._thread.start()
 
-    def _thread_main(self):
+    def run_guarded(self):
+        """Như run() nhưng không ném lỗi: báo qua listener.on_error/on_finished (dùng cho luồng nền, QThread)."""
         try:
             self.run()
         except EngineError as e:

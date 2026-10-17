@@ -1,0 +1,46 @@
+{
+  "_source": "Chép từ GIT_frontend/src/index.css (khối :root) và GIT_frontend/.agents/skills/design-system/SKILL.md (mục 1-3, 8), kiểm ngày 2026-10-18. Web là nguồn chuẩn: muốn đổi màu thì sửa web rồi chép lại đây, chạy `python ui/build_theme.py` để sinh lại theme.qss.",
+  "colors": {
+    "surface": "#f4f5f3",
+    "background": "#ffffff",
+    "foreground": "#1c2433",
+    "card": "#ffffff",
+    "primary": "#256abf",
+    "primary-foreground": "#ffffff",
+    "secondary": "#eef1f6",
+    "muted": "#eef0ec",
+    "muted-foreground": "#5b6472",
+    "accent": "#e8eef8",
+    "destructive": "#d03b3b",
+    "border": "#e1e4df",
+    "input": "#d5d9d3",
+    "ring": "#2a78d6",
+    "chart-1": "#2a78d6",
+    "chart-2": "#86b6ef",
+    "chart-3": "#1c5cab",
+    "chart-4": "#cde2fb",
+    "chart-5": "#104281"
+  },
+  "status": {
+    "GOOD": "#0ca30c",
+    "BAD": "#d03b3b",
+    "AWAY": "#c98500",
+    "OFFLINE": "#8a8f98"
+  },
+  "radius": {
+    "base": 8,
+    "panel": 11,
+    "control": 6
+  },
+  "font": {
+    "family": "Be Vietnam Pro",
+    "weights": {"regular": 400, "medium": 500, "semibold": 600, "bold": 700},
+    "size": {"page-title": 24, "section-title": 16, "body": 14, "note": 12, "big-number": 48}
+  },
+  "spacing": {"unit": 4, "panel-padding": 24, "section-gap": 32},
+  "motion": {"color-ms": 150, "plumb-rotate-ms": 600},
+  "plumb": {
+    "_source": "GIT_frontend/src/components/PlumbLine.tsx: viewBox 60x100, BAD nghiêng 14 độ quanh (30,92)",
+    "tilt-deg": {"GOOD": 0, "BAD": 14, "AWAY": 0, "OFFLINE": 0}
+  }
+}
