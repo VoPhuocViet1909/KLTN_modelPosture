@@ -94,6 +94,31 @@ class EngineOptions:
     stream_rtsp_base: str = "rtsp://127.0.0.1:8554"
     ffmpeg: str = "ffmpeg"
     render_legacy: bool = False        # vẽ vis_side/vis_front kiểu OpenCV cũ (CLI); Qt tự vẽ nên để False
+    send: bool = True                  # False = chế độ không đăng nhập: chỉ nhắc tại chỗ, không ghi outbox, không gửi
+
+
+class _LocalOutbox:
+    """Thay Outbox khi EngineOptions.send = False: không ghi gì xuống đĩa."""
+
+    def stats(self):
+        return dict(sent=0, pending=0, dead=0)
+
+    def close(self):
+        pass
+
+
+class _LocalSender:
+    """Thay Sender khi EngineOptions.send = False (không đăng nhập): không xếp hàng, không gửi."""
+    base_url = None
+    online = None
+    last_error = None
+
+    def enqueue_event(self, ev): pass
+    def enqueue_metric(self, m): pass
+    def configure(self, *a, **k): pass
+    def start(self): pass
+    def stop(self, timeout=None): pass
+    def status_text(self): return "chua dang nhap, khong gui"
 
 
 def load_config(path):
@@ -243,9 +268,12 @@ class PostureEngine:
                              listeners=[self.notifier, self._relay_alert])
 
         # gửi dữ liệu
-        self.outbox = Outbox(o.outbox)
-        self.sender = Sender(self.outbox, cfg["api_base_url"], cfg["api_token"], self.elog.device_id,
-                             interval=cfg["batch_interval_sec"], batch_max=cfg["batch_max"], auth=self.auth)
+        if o.send:
+            self.outbox = Outbox(o.outbox)
+            self.sender = Sender(self.outbox, cfg["api_base_url"], cfg["api_token"], self.elog.device_id,
+                                 interval=cfg["batch_interval_sec"], batch_max=cfg["batch_max"], auth=self.auth)
+        else:
+            self.outbox, self.sender = _LocalOutbox(), _LocalSender()
         os.makedirs(os.path.dirname(os.path.abspath(o.metrics_out)), exist_ok=True)
         self.metrics_f = open(o.metrics_out, "a", encoding="utf-8")
         self.agg = MetricsAggregator(self._on_metric, self.elog.wall_t0, self.elog.session_id, self.elog.device_id,
@@ -311,7 +339,9 @@ class PostureEngine:
         self.sync_info = dict(sent=st.get("sent", 0), pending=st.get("pending", 0), dead=st.get("dead", 0),
                               online=self.sender.online if self.sender.base_url else None,
                               hasServer=bool(self.sender.base_url), text=self.sender.status_text(),
-                              lastError=self.sender.last_error)
+                              lastError=self.sender.last_error,
+                              authLost=bool(self.auth is not None and self.auth.lost),
+                              lostKind=self.auth.lost_kind if self.auth is not None else None)
         self.listener.on_sync(self.sync_info)
 
     # ---------------------------------------------------------------- chạy

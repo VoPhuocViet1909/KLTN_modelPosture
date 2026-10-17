@@ -47,6 +47,8 @@ def make_icon(state, size=64):
 class TrayController(QSystemTrayIcon):
     openRequested = Signal()
     recalibrateRequested = Signal()
+    logoutRequested = Signal()
+    loginRequested = Signal()
     quitRequested = Signal()
 
     def __init__(self, parent=None):
@@ -55,17 +57,32 @@ class TrayController(QSystemTrayIcon):
         self.menu = QMenu()
         self.act_open = QAction("Mở", self.menu)
         self.act_recal = QAction("Hiệu chỉnh lại", self.menu)
+        self.act_logout = QAction("Đăng xuất", self.menu)
+        self.act_login = QAction("Đăng nhập…", self.menu)
         self.act_quit = QAction("Thoát", self.menu)
         self.act_open.triggered.connect(self.openRequested)
         self.act_recal.triggered.connect(self.recalibrateRequested)
+        self.act_logout.triggered.connect(self.logoutRequested)
+        self.act_login.triggered.connect(self.loginRequested)
         self.act_quit.triggered.connect(self.quitRequested)
         self.menu.addAction(self.act_open)
         self.menu.addAction(self.act_recal)
         self.menu.addSeparator()
+        self.menu.addAction(self.act_login)
+        self.menu.addAction(self.act_logout)
+        self.menu.addSeparator()
         self.menu.addAction(self.act_quit)
+        self.set_mode("login")
         self.setContextMenu(self.menu)
         self.activated.connect(self._on_activated)
         self.set_state("OFFLINE")
+
+    def set_mode(self, mode):
+        """mode: 'login' (đang ở màn đăng nhập), 'session' (đã đăng nhập), 'local' (không đăng nhập)."""
+        self.mode = mode
+        self.act_logout.setVisible(mode == "session")
+        self.act_login.setVisible(mode == "local")
+        self.act_recal.setEnabled(mode in ("session", "local"))
 
     def _on_activated(self, reason):
         if reason in (QSystemTrayIcon.Trigger, QSystemTrayIcon.DoubleClick):

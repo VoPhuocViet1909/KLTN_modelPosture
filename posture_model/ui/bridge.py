@@ -54,6 +54,22 @@ class EngineThread(QThread):
         return self.wait(wait_ms)
 
 
+class Task(QThread):
+    """Chạy một hàm chặn (đăng nhập, đăng xuất, mở lại phiên) ngoài luồng giao diện để cửa sổ không đơ."""
+    done = Signal(object)          # kết quả
+    failed = Signal(object)        # ngoại lệ
+
+    def __init__(self, fn, parent=None):
+        super().__init__(parent)
+        self.fn = fn
+
+    def run(self):
+        try:
+            self.done.emit(self.fn())
+        except Exception as e:
+            self.failed.emit(e)
+
+
 class QtNotifier(QObject, NotifierBase):
     """Notifier cho giao diện Qt: nhận sự kiện từ luồng engine, đẩy sang luồng giao diện bằng signal.
     Hiển thị (banner / toast / bíp / hộp thoại) do AppController xử lý theo mức độ + cấu hình notify_*."""
