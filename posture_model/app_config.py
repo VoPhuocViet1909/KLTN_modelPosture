@@ -41,6 +41,11 @@ DEFAULTS = {
     "notify_popup": True,            # chỉ bật popup khi mức HIGH (nhắc lần 3 trở đi)
     # --- khác
     "calib_sec": 10,
+    # --- kiểm hợp lệ lúc hiệu chỉnh (calibration.py): chỉ ở máy, máy chủ không gửi các khóa này
+    "calib_visible_ratio": 0.8,      # cam hông thấy đủ tai-vai-hông ở >= 80% số khung
+    "calib_max_score": 2,            # điểm RULA tối đa của trung vị góc cổ / thân (2 = <= 20 độ)
+    "calib_still_deg": 5.0,          # độ lệch chuẩn góc cổ / thân tối đa (ngồi yên)
+    "calib_front_ratio": 0.5,        # cam laptop thấy đủ 2 vai ở >= 50% số khung
     # --- gửi dữ liệu (giai đoạn 2)
     "api_base_url": None,            # vd "http://127.0.0.1:8080" (mock_server.py); null = chỉ lưu outbox
     "api_token": None,               # JWT, có sau khi đăng nhập (giai đoạn 3)
@@ -48,6 +53,8 @@ DEFAULTS = {
     "batch_max": 100,                # tối đa 100 mục / lô
     "metrics_window_sec": 60,        # gộp metrics mỗi 60 giây
 }
+
+LOCAL_ONLY_KEYS = {"calib_visible_ratio", "calib_max_score", "calib_still_deg", "calib_front_ratio"}   # không nhận từ máy chủ
 
 LIVE_KEYS = {k for k in DEFAULTS if k not in ("calib_sec",)}   # các khoá áp dụng ngay khi đổi
 
@@ -114,7 +121,7 @@ class AppConfig:
 
     def apply_remote(self, config):
         """Full server snapshot; missing keys fall back to local config/model defaults. Memory only."""
-        if (not isinstance(config, dict) or set(config) - (set(DEFAULTS) - {"api_base_url", "api_token", "user_id"})
+        if (not isinstance(config, dict) or set(config) - (set(DEFAULTS) - {"api_base_url", "api_token", "user_id"} - LOCAL_ONLY_KEYS)
                 or any(isinstance(v, float) and not math.isfinite(v) for v in config.values())
                 or validate("config", config)):
             raise ValueError("Invalid remote configuration")

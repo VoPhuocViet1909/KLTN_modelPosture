@@ -26,6 +26,7 @@ import cv2
 import numpy as np
 import onnxruntime as ort
 
+import calibration
 from alerts import AlertTracker, EventLog, PresenceTracker, Reminders
 from app_config import AppConfig
 from distance import EyeDistance
@@ -147,6 +148,7 @@ def apply_config(cfg, trackers, rem, pres):
 
 class PostureEngine:
     STATE_EVERY = 0.25          # giây giữa hai lần phát on_state
+    CALIB_RETRY_SEC = 3.0       # hiệu chỉnh không đạt: hiện lý do bấy nhiêu giây rồi tự làm lại
     SYNC_EVERY = 1.0            # giây giữa hai lần đọc trạng thái gửi (SQLite)
 
     def __init__(self, opts, cfg=None, model_cfg=None, auth=None, config_sync=None, notifier=None,
@@ -162,6 +164,8 @@ class PostureEngine:
         self.want_frames = False
         self._stop = threading.Event()
         self._recalib = threading.Event()
+        self._skip_front = threading.Event()
+        self._front_off = False
         self._thread = None
         self.finish_reason = None
         # điền ở _setup()
@@ -204,7 +208,16 @@ class PostureEngine:
         return self._thread is not None and self._thread.is_alive()
 
     def request_recalibrate(self):
+        """Hiệu chỉnh lại từ đầu (cũng bật lại camera laptop nếu trước đó đã bỏ qua)."""
         self._recalib.set()
+
+    def request_skip_front(self):
+        """Bỏ qua camera laptop: chạy không đo lệch vai và khoảng cách (khi camera laptop không thấy đủ hai vai)."""
+        self._skip_front.set()
+
+    @property
+    def front_skipped(self):
+        return self._front_off
 
     def sitting_sec(self):
         return self.rem.sitting_sec(self.now) if self.rem else 0.0
@@ -322,7 +335,7 @@ class PostureEngine:
         for t in self.trackers:
             evs += t.reset(now, "RECALIBRATE")
         self._emit(evs)
-        return dict(L=[], W=[], tilt=[], dpx=[], dkind=[], t0=None)
+        return calibration.new_samples()
 
     # ---------------------------------------------------------------- phát trạng thái
     def _posture_state(self, calibrating):
@@ -343,6 +356,15 @@ class PostureEngine:
                               authLost=bool(self.auth is not None and self.auth.lost),
                               lostKind=self.auth.lost_kind if self.auth is not None else None)
         self.listener.on_sync(self.sync_info)
+
+    def _calib_payload(self, progress, cal_fail, now, front_available):
+        """Danh sách kiểm tra hiệu chỉnh cho giao diện: checks [{code,label,ok,message}], lý do khi không đạt, đếm ngược làm lại."""
+        checks = [dict(code=c["code"], label=c["label"], ok=c["ok"], message=c["message"])
+                  for c in (progress["checks"] if progress else [])]
+        return dict(stage="failed" if cal_fail else "measuring", checks=checks,
+                    reasons=list(cal_fail["reasons"]) if cal_fail else [],
+                    retryLeft=max(cal_fail["until"] - now, 0.0) if cal_fail else 0.0,
+                    frontAvailable=front_available, frontSkipped=self._front_off, seconds=self.cfg["calib_sec"])
 
     # ---------------------------------------------------------------- chạy
     def run(self):
@@ -377,6 +399,7 @@ class PostureEngine:
         render = o.render_legacy or self.viewer is not None
 
         cal, side, f, base, tilt_base = self._start_calib(), None, None, None, None
+        cal_fail, progress, last_prog = None, None, -1e9       # hiệu chỉnh không đạt: chờ vài giây rồi làm lại
         buf = collections.deque(maxlen=WIN)
         p_hist, t_hist, d_hist = (collections.deque(maxlen=5) for _ in range(3))     # median filter 5 kết quả
         p_med, t_med, d_med, ang, rula_lab = 0.0, np.nan, np.nan, None, None
@@ -384,7 +407,7 @@ class PostureEngine:
         Ls_draw = Lf_draw = None
         frame_i, t_start, miss, now = 0, time.time(), 0, 0.0
         last_state_t = last_sync_t = -1e9
-        last_state = None
+        last_state = last_stage = None
 
         while not self._stop.is_set():
             ok, fs = cap_s.read()
@@ -401,7 +424,7 @@ class PostureEngine:
             ff = None
             if cap_f is not None:
                 okf, ff = cap_f.read()
-                if not okf:
+                if not okf or self._front_off:
                     ff = None
             frame_i += 1
             if self.stream:
@@ -451,21 +474,43 @@ class PostureEngine:
 
             calibrating = base is None
             if calibrating:  # ======================================== hiệu chỉnh
-                if cal["t0"] is None:
-                    cal["t0"] = now
-                if Ls is not None:
-                    cal["L"].append(Ls)
-                    cal["W"].append(Ws)
-                if Lf is not None:
-                    cal["tilt"].append(shoulder_tilt(Lf))
-                if dkind:
-                    cal["dpx"].append(dpx)
-                    cal["dkind"].append(dkind)
-                left = cfg["calib_sec"] - (now - cal["t0"])
-                if left <= 0:
-                    if len(cal["L"]) < 10:
-                        print("Cam hông không thấy người đủ lâu, hiệu chỉnh lại.")
-                        cal = self._start_calib()
+                front_on = cap_f is not None and not self._front_off
+                if cal_fail is not None:                 # vừa không đạt: hiện lý do vài giây rồi làm lại
+                    left = 0.0
+                    if now >= cal_fail["until"]:
+                        cal, cal_fail, progress, last_prog = self._start_calib(), None, None, -1e9
+                        left = float(cfg["calib_sec"])        # lượt mới bắt đầu từ khung sau
+                else:
+                    if cal["t0"] is None:
+                        cal["t0"] = now
+                    if sample_s:
+                        cal["n_s"] += 1
+                    if sample_f:
+                        cal["n_f"] += 1
+                    if Ls is not None:
+                        cal["L"].append(Ls)
+                        cal["W"].append(Ws)
+                    if Lf is not None:
+                        cal["tilt"].append(shoulder_tilt(Lf))
+                    if dkind:
+                        cal["dpx"].append(dpx)
+                        cal["dkind"].append(dkind)
+                    left = cfg["calib_sec"] - (now - cal["t0"])
+                    width = ff.shape[1] if ff is not None else 640
+                    if left > 0 and now - last_prog >= 0.5:      # danh sách kiểm tra cập nhật trực tiếp
+                        last_prog = now
+                        progress = calibration.evaluate(cal, cfg, front_on, ed, width, final=False)
+                if cal_fail is None and left <= 0:
+                    res = calibration.evaluate(cal, cfg, front_on, ed, width, final=True)
+                    if not res["ok"]:
+                        # KHÔNG lưu baseline: tư thế chưa chuẩn không được lấy làm mốc. Ghi sự kiện (chỉ ở máy), tự làm lại.
+                        progress = cal_fail = dict(res, until=now + self.CALIB_RETRY_SEC)
+                        print("Hiệu chỉnh không đạt, sẽ làm lại sau", self.CALIB_RETRY_SEC, "giây:")
+                        for r in res["reasons"]:
+                            print(f"  - [{r['code']}] {r['message']}")
+                        self.elog.emit(dict(eventType="CALIBRATION_FAILED", t=now, reasons=res["reasons"],
+                                            checks={c["code"]: c["ok"] for c in res["checks"]}))
+                        cal_fail["until"] = now + self.CALIB_RETRY_SEC
                     else:
                         Lc, Wc = np.stack(cal["L"]), np.stack(cal["W"])
                         side = choose_side(Lc, Wc)
@@ -591,14 +636,17 @@ class PostureEngine:
             # ------------------------------------------------ phát cho giao diện
             wall = time.time()
             st = self._posture_state(calibrating)
-            if st != last_state or wall - last_state_t >= self.STATE_EVERY:
-                last_state, last_state_t = st, wall
+            stage = None if not calibrating else ("failed" if cal_fail else "measuring")
+            if st != last_state or stage != last_stage or wall - last_state_t >= self.STATE_EVERY:
+                last_state, last_stage, last_state_t = st, stage, wall
                 self.listener.on_state(dict(
                     state=st, calibrating=calibrating, calibLeft=max(left, 0) if calibrating else 0.0,
                     sittingSec=rem.sitting_sec(now), away=pres.away,
                     distanceCm=None if not np.isfinite(d_med) or ed is None else float(d_med),
                     neck=tr_neck.status, tilt=tr_tilt.status if tilt_base is not None else "...",
-                    distance=tr_dist.status if ed is not None else "...", pBad=snap.get("pBad")))
+                    distance=tr_dist.status if ed is not None else "...", pBad=snap.get("pBad"),
+                    frontSkipped=self._front_off,
+                    calib=self._calib_payload(progress, cal_fail, now, cap_f is not None) if calibrating else None))
             if wall - last_sync_t >= self.SYNC_EVERY:
                 last_sync_t = wall
                 self._publish_sync()
@@ -611,9 +659,18 @@ class PostureEngine:
                     return "quit"
                 if k == ord("c"):
                     self._recalib.set()
+            if self._skip_front.is_set():          # bỏ qua cam laptop: không đo lệch vai / khoảng cách nữa
+                self._skip_front.clear()
+                self._front_off = True
+                tilt_base, t_med, d_med = None, np.nan, np.nan
+                t_hist.clear(); d_hist.clear()
+                snap.update(tiltRel=None, distanceCm=None)
+                print("Đã bỏ qua camera laptop: chạy không đo lệch vai và khoảng cách.")
             if self._recalib.is_set():
                 self._recalib.clear()
+                self._front_off = False
                 cal, base, tilt_base = self._start_calib(now), None, None
+                cal_fail, progress, last_prog = None, None, -1e9
         return "stopped"
 
     # ---------------------------------------------------------------- kết thúc phiên

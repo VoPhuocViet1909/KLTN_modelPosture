@@ -38,6 +38,39 @@ Cửa sổ chính (~420×560) không hiện camera; nút **Xem camera** mở khu
 Kiểm với backend thật: `python posture_model/ui/login_e2e.py login|resume|lost <thư mục>` (cần `DEMO_PW`, backend `docker compose up -d`
 với `AUTH_SEED_DEMO=true`); logic có kiểm thử riêng không cần mạng: `python posture_model/tests/test_login.py`.
 
+## Hiệu chỉnh có kiểm hợp lệ
+
+Trước đây chỉ cần cam hông thấy người ≥ 10 khung là lưu baseline, nên người gù lưng/ngồi lệch lúc hiệu chỉnh bị lấy tư thế sai làm chuẩn.
+Nay hết `calib_sec` (10 giây) engine gọi `calibration.evaluate` trên **góc thô** (chưa trừ baseline, từ `sequence_angles`). Không đạt thì
+**không lưu baseline**, phát `CALIBRATION_FAILED`, chờ 3 giây rồi tự đo lại; đạt mới phát `CALIBRATED` như cũ.
+
+Quy ước góc (`frame_angles`): thân (trunk) dương khi nghiêng ra trước, âm khi ngả sau; cổ (neck) là góc so với thân, dương khi cúi, âm khi ngửa.
+So bằng đúng hàm của teacher RULA nhóm B (`score_neck`, `score_trunk`): điểm 1 = thẳng, 2 = ≤ 20°, ≥ 3 = sai.
+
+| Kiểm tra (mã lỗi) | Điều kiện đạt | Khóa cấu hình (`app_config.json`) |
+| --- | --- | --- |
+| Thấy người ở cam hông (`SIDE_NOT_VISIBLE`) | tai–vai–hông (visibility ≥ 0,5) ở ≥ 80% số khung, tối thiểu 10 khung | `calib_visible_ratio` = 0.8 |
+| Lưng thẳng (`BACK_NOT_STRAIGHT`) | trung vị góc thân: điểm ≤ 2 (≤ 20°) và không ngả sau quá 15° (`LEAN_BACK_TOL` của teacher) | `calib_max_score` = 2 |
+| Cổ thẳng (`NECK_NOT_STRAIGHT`) | trung vị góc cổ: điểm ≤ 2 (−15° … 20°; ngửa quá 15° là điểm 4) | `calib_max_score` = 2 |
+| Ngồi yên (`MOVING_TOO_MUCH`) | độ lệch chuẩn góc cổ và góc thân ≤ 5° | `calib_still_deg` = 5.0 |
+| Thấy hai vai (`SHOULDERS_NOT_VISIBLE`), nếu cam laptop bật | `shoulder_tilt` hợp lệ ở ≥ 50% số khung | `calib_front_ratio` = 0.5 |
+| Khoảng cách (`TOO_CLOSE`), nếu đo được | khoảng cách mắt–màn hình ≥ `distance_on_cm` (không đo được thì không chặn) | `distance_on_cm` (đã có) |
+
+- Lưng/cổ/ngồi yên chỉ được đánh giá khi cam hông thấy người đủ (ngược lại chỉ báo "không thấy người", tránh kết luận bậy từ dữ liệu thiếu).
+- Các khóa `calib_*` mới **chỉ ở máy**: `apply_remote` từ chối nếu máy chủ gửi, và `config.schema.json` (3 bản sao theo team-sync mục 2.5) **không đổi**;
+  giá trị sai kiểu/ngoài khoảng bị bỏ qua, dùng mặc định.
+- `CALIBRATION_FAILED {reasons:[{code, message}], checks:{mã: true/false/null}}` ghi vào `events.jsonl` và phát cho giao diện, nhưng
+  `Sender` **không gửi** lên backend (không thuộc 10 loại event của ingestion, gửi sẽ bị đánh dấu `dead`). CLI `realtime_app.py` in lý do ra console.
+- Engine: `on_state` có thêm `calib` (`stage` = `measuring`/`failed`, `checks`, `reasons`, `retryLeft`, `frontAvailable`, `frontSkipped`)
+  và `frontSkipped`; `engine.request_skip_front()` bỏ qua cam laptop (không đo lệch vai và khoảng cách; `request_recalibrate()` bật lại).
+- Giao diện (`ui/calibration_view.py`): hướng dẫn "Ngồi thẳng lưng, mắt nhìn màn hình, đặt tay lên đùi hoặc bàn, không gõ phím trong 10 giây",
+  danh sách kiểm tra cập nhật nửa giây một lần (✓ đạt / ✗ chưa đạt / vòng đứt nét = đang kiểm tra; luôn có icon + chữ), khi không đạt hiện lý do cụ thể
+  + "Làm lại sau N giây", nút **Hiệu chỉnh lại** (cũng ở menu khay) và **Bỏ qua camera laptop** (chỉ hiện khi cam laptop mở); đã bỏ qua thì cửa sổ chính ghi rõ
+  "Đang chạy không đo lệch vai và khoảng cách".
+- Kiểm thử: `python posture_model/tests/test_calibration.py` (đạt, gù lưng, cúi cổ, ngả sau/ngửa cổ, cử động nhiều, không thấy người, thiếu vai, quá gần,
+  ngưỡng cấu hình, engine bắt gù rồi cho đạt khi ngồi thẳng, engine không lưu baseline nếu không bao giờ đạt, bỏ qua cam laptop);
+  `python posture_model/ui/calib_e2e.py gu|vai <thư mục>` chụp màn hình qua đường ống Qt đầy đủ.
+
 ## Cấu trúc
 
 | Đường dẫn (`posture_model/`) | Việc |
@@ -48,6 +81,7 @@ với `AUTH_SEED_DEMO=true`); logic có kiểm thử riêng không cần mạng:
 | `ui/design_tokens.json`, `ui/theme.qss` | Màu, trạng thái, bo góc, cỡ chữ chép từ `GIT_frontend/src/index.css` + design-system (ghi nguồn trong file). `theme.qss` sinh bằng `python ui/build_theme.py`. |
 | `ui/labels.json` | Tên trạng thái/cảnh báo khớp `GIT_frontend/src/lib/labels.ts`; lời nhắc theo bảng 3.5 kế hoạch ngôn ngữ. `notifier.py` đọc file này. |
 | `credentials.py`, `login_service.py`, `ui/login_view.py` | Kho khóa (keyring), logic đăng nhập/mở lại phiên/đăng xuất + thông báo lỗi tiếng Việt, màn đăng nhập. `api_session.py` được mở rộng tương thích: `AuthError.kind`, `ApiSession.resume/logout/lost`, callback khi token xoay vòng. |
+| `calibration.py`, `ui/calibration_view.py` | Kiểm hợp lệ hiệu chỉnh (ngưỡng `calib_*`) và màn hiệu chỉnh. |
 | `ui/fonts/`, `ui/icons/` | Be Vietnam Pro (OFL, Google Fonts) và icon Lucide (ISC) dạng SVG. |
 
 ## Kiểm thử
