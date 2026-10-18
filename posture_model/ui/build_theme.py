@@ -12,6 +12,8 @@ QToolTip {{ background: {background}; color: {foreground}; border: 1px solid {bo
 
 QFrame#panel {{ background: {card}; border: 1px solid {border}; border-radius: {panel}px; }}
 QFrame#panel QLabel {{ background: transparent; }}
+QScrollArea, QScrollArea > QWidget > QWidget {{ background: {surface}; border: none; }}
+QFrame#panel QLabel#preview {{ background: {muted}; border: 1px solid {border}; border-radius: {control}px; color: {muted_foreground}; }}
 
 QLabel {{ background: transparent; }}
 QLabel#pageTitle {{ font-size: {page_title}px; font-weight: 600; }}
@@ -21,7 +23,7 @@ QLabel#bigNumber {{ font-size: {big_number}px; font-weight: 600; }}
 QLabel#stateText {{ font-size: {section_title}px; font-weight: 500; color: {foreground}; }}
 QLabel#error {{ color: {destructive}; font-size: {body}px; }}
 
-QPushButton {{ background: {background}; border: 1px solid {input}; border-radius: {control}px; padding: 8px 16px;
+QPushButton {{ background: {background}; border: 1px solid {input}; border-radius: {control}px; padding: 8px 16px; min-height: 26px;
   font-weight: 500; }}
 QPushButton:hover {{ background: {accent}; }}
 QPushButton:focus {{ border: 2px solid {ring}; padding: 7px 15px; }}
@@ -33,10 +35,13 @@ QPushButton#link {{ border: none; background: transparent; color: {primary}; pad
 QPushButton#link:hover {{ background: transparent; text-decoration: underline; }}
 QPushButton#link:focus {{ border: 2px solid {ring}; padding: 2px 6px; }}
 
-QLineEdit {{ background: {background}; border: 1px solid {input}; border-radius: {control}px; padding: 8px 12px;
+QLineEdit {{ background: {background}; border: 1px solid {input}; border-radius: {control}px; padding: 8px 12px; min-height: 26px;
   selection-background-color: {chart_4}; selection-color: {foreground}; }}
 QLineEdit:focus {{ border: 2px solid {ring}; padding: 7px 11px; }}
 QLineEdit[invalid="true"] {{ border-color: {destructive}; }}
+QComboBox {{ background: {background}; border: 1px solid {input}; border-radius: {control}px; min-height: 30px; padding: 6px 12px; }}
+QComboBox:focus {{ border: 2px solid {ring}; padding: 5px 11px; }}
+QComboBox QAbstractItemView {{ background: {background}; selection-background-color: {accent}; selection-color: {foreground}; }}
 
 QCheckBox {{ spacing: 8px; }}
 QCheckBox::indicator {{ width: 16px; height: 16px; border: 1px solid {input}; border-radius: 4px; background: {background}; }}

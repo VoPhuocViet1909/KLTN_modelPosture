@@ -96,3 +96,10 @@ Các version được resolver cài mới trong venv; metadata maintainer PyPI �
 Resolution/import và kiểm tích hợp đạt. `pip check` của venv dùng system-site-packages còn báo xung đột có sẵn: torch 2.14.0 cần setuptools >=77.0.3 nhưng đang 65.5.0; chưa sửa môi trường torch ngoài phạm vi, không tuyên bố toàn venv sạch. Manifest ghim dependency trực tiếp Socket.IO; chưa khóa toàn bộ dependency/transitive hoặc đóng gói app.
 
 Kiểm gửi bù bổ sung: tiêm URLError tại HTTP opener của client (không dừng BE/mạng thật), hai event giữ nguyên ID/pending trong SQLite; phục hồi opener và gửi qua Gateway thật đạt 2 sent/0 pending/dead. Lượt shell thiếu `-X utf8` lỗi khi in tiếng Việt, chạy lại với UTF-8 đạt; không thay runtime/version.
+# Bật/dừng trên desktop GUI
+
+Bản nguồn `feat/desktop-camera-sharing`: đăng nhập → hiệu chỉnh → **Chia sẻ camera lên web**
+→ chọn góc → **Bật chia sẻ**; nếu được hỏi, chọn `ffmpeg.exe`. Trên Dashboard cùng tài khoản,
+chọn thiết bị/góc và **Xem camera**. **Dừng chia sẻ** giữ giám sát tư thế. Đăng xuất/thoát/đổi
+thiết lập dừng publisher, phiên mới mặc định tắt. Đóng cửa sổ xuống khay vẫn tiếp tục chia sẻ.
+Camera trước phải đang hoạt động. CLI phía dưới vẫn dùng được. Portable cũ chưa có nút mới.

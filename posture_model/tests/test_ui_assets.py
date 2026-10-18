@@ -10,7 +10,7 @@ sys.path.insert(0, os.path.dirname(HERE))
 from ui import build_theme  # noqa: E402
 from ui.tokens import UI_DIR, labels, tokens  # noqa: E402
 
-WEB = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(HERE))), "GIT_frontend")
+WEB = os.environ.get("KLTN_WEB_ROOT", os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(HERE))), "FE", "KLTN_dashboard"))
 CSS, LABELS_TS = os.path.join(WEB, "src", "index.css"), os.path.join(WEB, "src", "lib", "labels.ts")
 
 
@@ -20,7 +20,7 @@ def _skip(msg):
 
 def test_tokens_match_web_css():
     if not os.path.exists(CSS):
-        return _skip("không thấy GIT_frontend")
+        return _skip("không thấy web tại " + WEB)
     css = dict(re.findall(r"--([a-z0-9-]+):\s*(#[0-9a-fA-F]{6})", open(CSS, encoding="utf-8").read()))
     t = tokens()
     for k, v in t["colors"].items():
@@ -31,7 +31,7 @@ def test_tokens_match_web_css():
 
 def test_labels_match_web():
     if not os.path.exists(LABELS_TS):
-        return _skip("không thấy GIT_frontend")
+        return _skip("không thấy web tại " + WEB)
     ts = open(LABELS_TS, encoding="utf-8").read()
     alert = dict(re.findall(r"^\s+([A-Z_]+): '([^']+)',?$", ts.split("SEVERITY_LABEL")[0], re.M))
     for k, v in alert.items():

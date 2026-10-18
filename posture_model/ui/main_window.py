@@ -1,8 +1,8 @@
-"""Cửa sổ chính ~420x560. Hai trang: Đăng nhập (LoginView) và Trạng thái (thước dọi, nhãn trạng thái, thời gian ngồi,
+"""Cửa sổ co giãn. Hai trang: Đăng nhập (LoginView) và Trạng thái (thước dọi, nhãn trạng thái, thời gian ngồi,
 khoảng cách mắt–màn hình, kết nối). Không hiện camera mặc định; nút 'Xem camera' mở cửa sổ riêng."""
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import (QFrame, QGridLayout, QHBoxLayout, QLabel, QMainWindow, QPushButton, QStackedWidget,
-                               QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QComboBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QMainWindow, QPushButton, QStackedWidget,
+                               QScrollArea, QVBoxLayout, QWidget)
 
 from ui import icons
 from ui.calibration_view import CalibrationView
@@ -24,22 +24,32 @@ class MainWindow(QMainWindow):
     recalibrateRequested = Signal()
     skipFrontRequested = Signal()
     setupRequested = Signal()
+    streamRequested = Signal(object)
 
     PAGE_LOGIN, PAGE_STATUS = 0, 1
 
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Posture Monitor")
-        self.setFixedSize(420, 560)
+        self.setMinimumSize(400, 400)
+        self.resize(480, 700)
         root = QWidget()
         root.setObjectName("root")
-        self.setCentralWidget(root)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setWidget(root)
+        self.setCentralWidget(scroll)
         outer = QVBoxLayout(root)
-        outer.setContentsMargins(16, 16, 16, 16)
+        outer.setContentsMargins(20, 20, 20, 20)
+        outer.setSpacing(16)
+        brand = QLabel("Giám sát tư thế")
+        brand.setObjectName("sectionTitle")
+        outer.addWidget(brand)
         self.stack = QStackedWidget()
         outer.addWidget(self.stack)
-        self.btn_setup = QPushButton("Thiết lập camera / máy chủ")
-        self.btn_setup.setObjectName("link")
+        self.btn_setup = QPushButton("Thiết lập camera và máy chủ")
+        self.btn_setup.setMinimumHeight(44)
         self.btn_setup.clicked.connect(self.setupRequested)
         outer.addWidget(self.btn_setup)
 
@@ -119,6 +129,7 @@ class MainWindow(QMainWindow):
         left.addWidget(self.conn)
         self.account = QLabel("")
         self.account.setObjectName("note")
+        self.account.setWordWrap(True)
         self.account.setIndent(20)
         left.addWidget(self.account)
         self.btn_login = QPushButton("Đăng nhập")
@@ -133,8 +144,55 @@ class MainWindow(QMainWindow):
         self.btn_cam.clicked.connect(self.cameraRequested)
         bottom.addWidget(self.btn_cam, 0, Qt.AlignBottom)
         outer.addLayout(bottom)
+        share = QFrame()
+        share.setObjectName("panel")
+        sl = QVBoxLayout(share)
+        sl.setContentsMargins(16, 16, 16, 16)
+        label = QLabel("Chia sẻ camera lên web")
+        label.setObjectName("sectionTitle")
+        sl.addWidget(label)
+        choice = QHBoxLayout()
+        self.stream_camera = QComboBox()
+        self.stream_camera.addItem("Camera hông", "side")
+        self.stream_camera.addItem("Camera trước", "front")
+        self.stream_camera.setAccessibleName("Camera chia sẻ lên web")
+        self.stream_camera.setMinimumHeight(44)
+        choice.addWidget(self.stream_camera, 1)
+        self.btn_stream = QPushButton("Bật chia sẻ")
+        self.btn_stream.setMinimumHeight(44)
+        self.btn_stream.clicked.connect(lambda: self.streamRequested.emit(None if self._sharing else self.stream_camera.currentData()))
+        choice.addWidget(self.btn_stream)
+        sl.addLayout(choice)
+        self.stream_note = QLabel()
+        self.stream_note.setObjectName("note")
+        self.stream_note.setWordWrap(True)
+        sl.addWidget(self.stream_note)
+        privacy = QLabel("Chỉ tài khoản của bạn xem được. Không ghi hình.\nĐóng cửa sổ vẫn chia sẻ; bấm Dừng chia sẻ để dừng.")
+        privacy.setObjectName("note")
+        privacy.setWordWrap(True)
+        sl.addWidget(privacy)
+        outer.addWidget(share)
+        self.set_stream({}, False)
         self.set_account(None)
         return page
+
+    def set_stream(self, info, available):
+        camera = info.get("camera")
+        self._sharing = bool(camera)
+        self.btn_stream.setText("Dừng chia sẻ" if camera else "Bật chia sẻ")
+        self.btn_stream.setEnabled(available)
+        self.stream_camera.setEnabled(available and not camera)
+        self.stream_camera.model().item(1).setEnabled(bool(info.get("frontAvailable")))
+        if camera:
+            self.stream_camera.setCurrentIndex(self.stream_camera.findData(camera))
+        elif not info.get("frontAvailable"):
+            self.stream_camera.setCurrentIndex(0)
+        status = {
+            "connecting": "Đang kết nối để chia sẻ camera…",
+            "publishing": "Đang chia sẻ. Mở Tổng quan trên web, chọn cùng camera rồi bấm Xem camera.",
+            "retrying": "Chưa truyền được hình. Kiểm tra kết nối máy chủ; ứng dụng đang thử lại.",
+        }.get(info.get("state"), "Chưa chia sẻ camera." if available else "Đăng nhập và mở camera để chia sẻ lên web.")
+        self.stream_note.setText(info.get("error") or status)
 
     def closeEvent(self, e):
         """Đóng cửa sổ = thu xuống khay; chỉ thoát bằng menu khay."""
