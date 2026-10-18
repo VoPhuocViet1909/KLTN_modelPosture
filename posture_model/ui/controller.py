@@ -98,6 +98,7 @@ class AppController(QObject):
         self._leaving = False
         self._tasks = {}
         self._dialog = None
+        self._engine_error = None
 
         self.window = MainWindow()
         self.tray = TrayController()
@@ -222,6 +223,8 @@ class AppController(QObject):
         self.auth, self.remember, self.mode = None, False, "login"
         self.engine = self.thread = None
         self._leaving = False
+        self._engine_error = None
+        self.window.btn_setup.setText("Thiết lập camera và máy chủ")
         self.cfg.remote = {}                           # bỏ cấu hình máy chủ của tài khoản cũ
         self.window.show_login()
         self.window.set_state(dict(state="OFFLINE"))
@@ -300,6 +303,8 @@ class AppController(QObject):
     def _run_engine(self, opts, auth, config_sync, mode):
         self.mode = mode
         self._leaving = False
+        self._engine_error = None
+        self.window.btn_setup.setText("Thiết lập camera và máy chủ")
         self.engine = PostureEngine(opts, cfg=self.cfg, model_cfg=self.model_cfg, auth=auth, config_sync=config_sync,
                                     notifier=self.notifier, listener=self.bridge)
         self.engine.want_frames = self.camera.isVisible()
@@ -376,14 +381,22 @@ class AppController(QObject):
         if self.mode != "login" and not self._leaving:
             self.window.set_state(dict(state="OFFLINE"))
             self.tray.set_state("OFFLINE")
+            if self._engine_error:
+                self.window.hint.setText(self._engine_error)
         if self.engine is not None:
             self.engine.want_frames = False
 
     def _on_error(self, msg):
-        if self.mode == "login":
+        if self.mode == "login" or self._leaving:
             return
+        self._engine_error = msg + " Chọn Kết nối lại / chọn camera để kiểm tra hình và tiếp tục."
+        self.camera.hide()
+        self.window.banner.hide()
+        if self._dialog is not None:
+            self._dialog.close()
         self.window.set_state(dict(state="OFFLINE"))
-        self.window.hint.setText(msg)
+        self.window.hint.setText(self._engine_error)
+        self.window.btn_setup.setText("Kết nối lại / chọn camera")
         self.tray.set_state("OFFLINE")
         if self.tray.isVisible():
             self.tray.showMessage("Posture Monitor", msg, QSystemTrayIcon.Warning, 8000)

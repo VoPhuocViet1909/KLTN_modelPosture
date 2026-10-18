@@ -147,6 +147,7 @@ def apply_config(cfg, trackers, rem, pres):
 
 
 class PostureEngine:
+    CAMERA_LOSS_SEC = 3.0       # ponytail: phát hiện giữa các read(); driver treo cần capture process riêng.
     STATE_EVERY = 0.25          # giây giữa hai lần phát on_state
     CALIB_RETRY_SEC = 3.0       # hiệu chỉnh không đạt: hiện lý do bấy nhiêu giây rồi tự làm lại
     SYNC_EVERY = 1.0            # giây giữa hai lần đọc trạng thái gửi (SQLite)
@@ -255,13 +256,12 @@ class PostureEngine:
         is_off = lambda v: (int(v) if str(v).lstrip("-").isdigit() else v) == -1
         self.cap_s = cv2.VideoCapture(o.side_video) if self.use_video else self._open_cam(o.side)
         if not self.cap_s.isOpened():
-            raise EngineError("Không mở được camera hông")
+            raise EngineError("Không mở được camera hông. Kiểm tra dây cắm, quyền camera và đóng ứng dụng đang dùng camera.")
         self.cap_f = None
         if o.front_video or (not self.use_video and not is_off(o.front)):
             self.cap_f = cv2.VideoCapture(o.front_video) if o.front_video else self._open_cam(o.front)
             if not self.cap_f.isOpened():
-                print("Không mở được cam laptop -> chỉ chạy nhánh cổ/thân")
-                self.cap_f = None
+                raise EngineError("Không mở được camera trước. Kiểm tra kết nối, quyền camera hoặc tắt camera trước trong thiết lập.")
         self.det_s = PoseDetector(task)
         self.det_f = PoseDetector(task) if self.cap_f is not None else None
         self.ed = None
@@ -405,27 +405,37 @@ class PostureEngine:
         p_med, t_med, d_med, ang, rula_lab = 0.0, np.nan, np.nan, None, None
         last_s = last_f = last_cfg = -1e9
         Ls_draw = Lf_draw = None
-        frame_i, t_start, miss, now = 0, time.time(), 0, 0.0
+        frame_i, t_start, now = 0, time.time(), 0.0
+        side_missing = front_missing = None
         last_state_t = last_sync_t = -1e9
         last_state = last_stage = None
 
         while not self._stop.is_set():
             ok, fs = cap_s.read()
-            if not ok:
+            if not ok or fs is None:
                 if use_video:
                     return "video_end"
-                miss += 1
-                if miss > 100:
-                    print("Mất hình cam hông quá lâu, thoát.")
+                if side_missing is None:
+                    side_missing = time.monotonic()
+                if time.monotonic() - side_missing >= self.CAMERA_LOSS_SEC:
+                    self.listener.on_error("Mất hình camera hông. Cắm lại camera, kiểm tra quyền camera và đóng ứng dụng đang dùng camera.")
                     return "camera_lost"
                 time.sleep(0.03)
                 continue
-            miss = 0
+            side_missing = None
             ff = None
             if cap_f is not None:
                 okf, ff = cap_f.read()
                 if not okf or self._front_off:
                     ff = None
+                if not use_video and not self._front_off and ff is None:
+                    if front_missing is None:
+                        front_missing = time.monotonic()
+                    if time.monotonic() - front_missing >= self.CAMERA_LOSS_SEC:
+                        self.listener.on_error("Mất hình camera trước. Cắm lại camera hoặc tắt camera trước trong thiết lập.")
+                        return "camera_lost"
+                else:
+                    front_missing = None
             frame_i += 1
             if self.stream:
                 self.stream.submit(fs if o.stream_camera == "side" else ff)
