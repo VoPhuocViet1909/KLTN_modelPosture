@@ -195,3 +195,11 @@ Lỗi truyền hình không làm dừng phân tích tư thế. Không ghi hình,
 Tái sử dụng media-token/RTSP hiện có, không thay API hay telemetry. CLI vẫn dùng
 `--stream-camera side|front`. Chưa đóng gói lại portable cho tính năng này; webcam/front/LAN
 cần nghiệm thu riêng. Kiểm giả lập runnable: `python posture_model/tests/test_camera_sharing.py`.
+
+## Bảo toàn dữ liệu và cảnh báo khi rời phiên
+
+Sender chỉ đánh dấu gửi/từ chối khi phản hồi có đủ ID trong `accepted`/`rejected`, không
+trùng hoặc lẫn ID ngoài lô. Phản hồi thiếu/sai giữ nguyên dữ liệu và thử lại; ID không đổi.
+Khi đăng xuất/hết phiên/dừng engine, app dọn banner/popup và bỏ cảnh báo đang chờ của phiên cũ.
+Không coi việc đóng popup là đã sửa tư thế; trạng thái vẫn theo camera.
+Kiểm không cần webcam: `python posture_model/tests/test_demo_reliability.py`.
