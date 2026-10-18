@@ -16,6 +16,7 @@ Mọi callback của EngineListener được gọi TRONG luồng của engine; g
 import collections
 import json
 import os
+import queue
 import sys
 import threading
 import time
@@ -174,6 +175,9 @@ class PostureEngine:
         self.last_metric = None
         self.now = 0.0
         self.sync_info = {}
+        self.stream = None
+        self.stream_error = None
+        self._stream_requests = queue.SimpleQueue()
 
     # ---------------------------------------------------------------- điều khiển
     def user_id(self):
@@ -215,6 +219,45 @@ class PostureEngine:
     def request_skip_front(self):
         """Bỏ qua camera laptop: chạy không đo lệch vai và khoảng cách (khi camera laptop không thấy đủ hai vai)."""
         self._skip_front.set()
+
+    def request_stream(self, camera, ffmpeg=None):
+        """Chỉ lệnh từ người dùng; vòng lặp camera sở hữu vòng đời publisher."""
+        if camera not in (None, "side", "front"):
+            raise ValueError("Camera không hợp lệ.")
+        self._stream_requests.put((camera, ffmpeg or self.o.ffmpeg))
+
+    def _update_stream(self):
+        request = None
+        while not self._stream_requests.empty():
+            request = self._stream_requests.get_nowait()
+        if request is None:
+            return
+        camera, ffmpeg = request
+        if self.stream:
+            self.stream.stop(wait=False)
+            self.stream = None
+        self.stream_error = None
+        if camera is None:
+            return
+        if not self.o.send or not (self.auth or self.cfg["api_token"]):
+            self.stream_error = "Đăng nhập để chia sẻ camera trên web."
+            return
+        if camera == "front" and (self.cap_f is None or self._front_off):
+            self.stream_error = "Camera trước chưa hoạt động. Chọn camera hông hoặc hiệu chỉnh lại camera trước."
+            return
+        try:
+            self.stream = LivePublisher(lambda: self.auth.credentials(self.cfg["api_base_url"]) if self.auth else
+                                        (self.cfg["api_base_url"], self.cfg["api_token"]), self.elog.device_id,
+                                        camera, self.o.stream_rtsp_base, ffmpeg, auth=self.auth)
+            self.stream.start()
+        except (OSError, ValueError):
+            self.stream = None
+            self.stream_error = "Không bật được chia sẻ. Kiểm tra công cụ truyền hình và kết nối máy chủ rồi thử lại."
+
+    def stream_info(self):
+        return dict(camera=self.stream.camera if self.stream else None,
+                    state=self.stream.state if self.stream else "off", error=self.stream_error,
+                    frontAvailable=self.cap_f is not None and not self._front_off)
 
     @property
     def front_skipped(self):
@@ -303,15 +346,8 @@ class PostureEngine:
             self.logf.write("time,posture,p_bad," + ",".join(FEATURES)
                             + ",rula_b,shoulder,tilt_rel,distance_cm,distance\n")
 
-        self.stream = None
         if o.stream_camera:
-            if o.stream_camera == "front" and self.cap_f is None:
-                raise EngineError("Camera front chưa mở; không thể truyền hình")
-            self.stream = LivePublisher(lambda: self.auth.credentials(cfg["api_base_url"]) if self.auth else
-                                        (cfg["api_base_url"], cfg["api_token"]), self.elog.device_id,
-                                        o.stream_camera, o.stream_rtsp_base, o.ffmpeg, auth=self.auth)
-            self.stream.start()
-            print("Live camera enabled:", o.stream_camera, "device:", self.elog.device_id)
+            self.request_stream(o.stream_camera)
         if self.config_sync:
             self.config_sync.start()
 
@@ -411,6 +447,7 @@ class PostureEngine:
         last_state = last_stage = None
 
         while not self._stop.is_set():
+            self._update_stream()
             ok, fs = cap_s.read()
             if not ok or fs is None:
                 if use_video:
@@ -438,7 +475,12 @@ class PostureEngine:
                     front_missing = None
             frame_i += 1
             if self.stream:
-                self.stream.submit(fs if o.stream_camera == "side" else ff)
+                if self.stream.camera == "front" and self._front_off:
+                    self.stream.stop(wait=False)
+                    self.stream = None
+                    self.stream_error = "Đã dừng chia sẻ vì camera trước đã được bỏ qua."
+                else:
+                    self.stream.submit(fs if self.stream.camera == "side" else ff)
             now = self.now = (frame_i / vid_fps) if use_video else (time.time() - t_start)
             if o.max_sec and now > o.max_sec:
                 return "max_sec"
@@ -661,7 +703,7 @@ class PostureEngine:
                     distanceCm=None if not np.isfinite(d_med) or ed is None else float(d_med),
                     neck=tr_neck.status, tilt=tr_tilt.status if tilt_base is not None else "...",
                     distance=tr_dist.status if ed is not None else "...", pBad=snap.get("pBad"),
-                    frontSkipped=self._front_off,
+                    frontSkipped=self._front_off, stream=self.stream_info(),
                     calib=self._calib_payload(progress, cal_fail, now, cap_f is not None) if calibrating else None))
             if wall - last_sync_t >= self.SYNC_EVERY:
                 last_sync_t = wall

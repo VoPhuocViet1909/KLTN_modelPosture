@@ -6,11 +6,12 @@ Vòng đời:  màn đăng nhập --đăng nhập / mở lại phiên đã nhớ
 """
 import dataclasses
 import os
+import shutil
 import threading
 import time
 
 from PySide6.QtCore import QObject, Qt, QTimer, Slot
-from PySide6.QtWidgets import QApplication, QDialog, QHBoxLayout, QLabel, QPushButton, QSystemTrayIcon, QVBoxLayout
+from PySide6.QtWidgets import QApplication, QDialog, QFileDialog, QHBoxLayout, QLabel, QPushButton, QSystemTrayIcon, QVBoxLayout
 
 import login_service
 from api_session import AuthError
@@ -119,6 +120,7 @@ class AppController(QObject):
         self.window.recalibrateRequested.connect(self.request_recalibrate)
         self.window.skipFrontRequested.connect(self.request_skip_front)
         self.window.setupRequested.connect(self.configure_devices)
+        self.window.streamRequested.connect(self.request_stream)
         self.window.login.loginRequested.connect(self._on_login_submit)
         self.window.login.localRequested.connect(self._on_local)
         self.camera.closed.connect(self._camera_closed)
@@ -229,6 +231,7 @@ class AppController(QObject):
         self.window.show_login()
         self.window.set_state(dict(state="OFFLINE"))
         self.window.set_sync(None)
+        self.window.set_stream({}, False)
         self.tray.set_state("OFFLINE")
         self.tray.set_mode("login")
         lg = self.window.login
@@ -312,6 +315,7 @@ class AppController(QObject):
         self.window.login.reset()
         self.window.show_status()
         self.window.set_state(dict(state="CALIBRATING", calibLeft=self.cfg["calib_sec"]))
+        self.window.set_stream({}, False)
         self.tray.set_mode(mode)
         self.thread.start()
 
@@ -322,6 +326,7 @@ class AppController(QObject):
             then()
             return
         self._leaving = True
+        self.window.set_stream({}, False)
         self.engine.want_frames = False
         self.engine.stop()
         poll = QTimer(self)
@@ -368,6 +373,7 @@ class AppController(QObject):
         if self._leaving or self.mode == "login":
             return
         self.window.set_state(s)
+        self.window.set_stream(s.get("stream") or {}, self.mode == "session")
         self.tray.set_state(s["state"])
 
     def _on_sync(self, info):
@@ -380,6 +386,7 @@ class AppController(QObject):
     def _on_finished(self, reason, stats):
         if self.mode != "login" and not self._leaving:
             self.window.set_state(dict(state="OFFLINE"))
+            self.window.set_stream({}, False)
             self.tray.set_state("OFFLINE")
             if self._engine_error:
                 self.window.hint.setText(self._engine_error)
@@ -395,6 +402,7 @@ class AppController(QObject):
         if self._dialog is not None:
             self._dialog.close()
         self.window.set_state(dict(state="OFFLINE"))
+        self.window.set_stream({}, False)
         self.window.hint.setText(self._engine_error)
         self.window.btn_setup.setText("Kết nối lại / chọn camera")
         self.tray.set_state("OFFLINE")
@@ -422,6 +430,32 @@ class AppController(QObject):
             self.engine.request_skip_front()
 
     # ---------------------------------------------------------------- camera
+    def request_stream(self, camera):
+        if self.mode != "session" or self._leaving or self.engine is None:
+            return
+        engine = self.engine
+        ffmpeg = None
+        if camera:
+            from ui.setup_view import preferences
+            settings = preferences()
+            ffmpeg = str(settings.value("ffmpeg", self.opts.ffmpeg))
+            if not shutil.which(ffmpeg):
+                ffmpeg, _ = QFileDialog.getOpenFileName(self.window,
+                    "Chọn ffmpeg.exe để truyền hình camera", "", "FFmpeg (ffmpeg.exe)")
+                if not ffmpeg:
+                    self.window.stream_note.setText("Chưa chọn công cụ truyền hình; camera chưa được chia sẻ.")
+                    return
+                if os.path.basename(ffmpeg).lower() != "ffmpeg.exe":
+                    self.window.stream_note.setText("Chọn đúng tệp ffmpeg.exe rồi thử lại.")
+                    return
+                settings.setValue("ffmpeg", ffmpeg)
+        if self.engine is not engine or self.mode != "session" or self._leaving:
+            return
+        engine.request_stream(camera, ffmpeg)
+        if camera:
+            self.window.set_stream(dict(camera=camera, state="connecting",
+                frontAvailable=self.window.stream_camera.model().item(1).isEnabled()), True)
+
     def open_camera(self):
         if self.engine is not None:
             self.engine.want_frames = True
