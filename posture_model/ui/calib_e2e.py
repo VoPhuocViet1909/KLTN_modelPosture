@@ -25,7 +25,7 @@ from ui.controller import AppController
 
 class PacedFake(FakePoseDetector):
     pause = 0.1
-    schedule = [(13, 0, 58), (1e9, 0, 0)]            # lưng gù ~30 độ suốt lượt đầu (0-10 s) và thời gian chờ, thẳng từ giây 13
+    schedule = [(13, -8.8, 58), (1e9, 0, 0)]            # lưng gù 30 độ (đầu vẫn ~20 độ so với đứng) suốt lượt đầu (0-10 s) và thời gian chờ, thẳng từ giây 13
 
     def __call__(self, frame, ts):
         time.sleep(PacedFake.pause)                   # 10 mẫu/giây = đúng tốc độ thực

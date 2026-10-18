@@ -43,7 +43,10 @@ DEFAULTS = {
     "calib_sec": 10,
     # --- kiểm hợp lệ lúc hiệu chỉnh (calibration.py): chỉ ở máy, máy chủ không gửi các khóa này
     "calib_visible_ratio": 0.8,      # cam hông thấy đủ tai-vai-hông ở >= 80% số khung
-    "calib_max_score": 2,            # điểm RULA tối đa của trung vị góc cổ / thân (2 = <= 20 độ)
+    "calib_max_neck_deg": 30.0,      # trung vị góc ĐẦU so với phương thẳng đứng (vai->tai) tối đa; p95 khung GOOD 31,2 làm tròn
+    "calib_min_neck_deg": 0.0,       # ... và tối thiểu (đầu ngửa ra sau)
+    "calib_max_trunk_deg": 20.0,     # trung vị góc thân tối đa (gù / nghiêng ra trước)
+    "calib_min_trunk_deg": -20.0,    # trung vị góc thân tối thiểu (ngả sau); -15 cũ loại nhầm 10,6% khung GOOD
     "calib_still_deg": 5.0,          # độ lệch chuẩn góc cổ / thân tối đa (ngồi yên)
     "calib_front_ratio": 0.5,        # cam laptop thấy đủ 2 vai ở >= 50% số khung
     # --- gửi dữ liệu (giai đoạn 2)
@@ -54,7 +57,8 @@ DEFAULTS = {
     "metrics_window_sec": 60,        # gộp metrics mỗi 60 giây
 }
 
-LOCAL_ONLY_KEYS = {"calib_visible_ratio", "calib_max_score", "calib_still_deg", "calib_front_ratio"}   # không nhận từ máy chủ
+LOCAL_ONLY_KEYS = {"calib_visible_ratio", "calib_max_neck_deg", "calib_min_neck_deg", "calib_max_trunk_deg",
+                   "calib_min_trunk_deg", "calib_still_deg", "calib_front_ratio"}   # không nhận từ máy chủ
 
 LIVE_KEYS = {k for k in DEFAULTS if k not in ("calib_sec",)}   # các khoá áp dụng ngay khi đổi
 

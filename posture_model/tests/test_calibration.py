@@ -18,7 +18,8 @@ from fake_pose import FakePoseDetector, make_blank_video, side_landmarks, write_
 from notifier import NotifierBase  # noqa: E402
 from sender import Sender  # noqa: E402
 
-CFG = {"calib_visible_ratio": 0.8, "calib_max_score": 2, "calib_still_deg": 5.0, "calib_front_ratio": 0.5,
+CFG = {"calib_visible_ratio": 0.8, "calib_max_neck_deg": 30.0, "calib_min_neck_deg": 0.0, "calib_max_trunk_deg": 20.0,
+       "calib_min_trunk_deg": -20.0, "calib_still_deg": 5.0, "calib_front_ratio": 0.5,
        "distance_on_cm": 50, "distance_off_cm": 55}
 
 
@@ -29,14 +30,21 @@ class FakeEd:
         return 6000.0 / px
 
 
-def samples(n=100, ear_dx=0.0, trunk_dx=0.0, jitter=0.0, visible=1.0, front=None, dist_px=None, seed=1):
-    """front: None = không có cam laptop; số 0..1 = tỉ lệ khung thấy đủ 2 vai. dist_px: kích thước mống mắt (px)."""
+def dx(head=20.0, trunk=0.0):
+    """Đổi (góc ĐẦU so với phương thẳng đứng, góc thân) sang tọa độ landmark giả: neck tương đối = đầu - thân."""
+    return 50.0 * np.tan(np.radians(head - trunk)), 100.0 * np.tan(np.radians(trunk))
+
+
+def samples(n=100, head=20.0, trunk=0.0, jitter=0.0, visible=1.0, front=None, dist_px=None, seed=1):
+    """head/trunk: độ. front: None = không có cam laptop; số 0..1 = tỉ lệ khung thấy đủ 2 vai. dist_px: kích thước mống mắt (px).
+    Mặc định đầu 20 độ so với đứng: ngồi thẳng thật có tai nằm trước vai ~15-27 độ."""
     rng = np.random.default_rng(seed)
     cal = calibration.new_samples()
+    ear, tr = dx(head, trunk)
     for _ in range(n):
         cal["n_s"] += 1
         if rng.random() < visible:
-            L, W = side_landmarks(ear_dx + rng.normal(0, jitter), trunk_dx + rng.normal(0, jitter))
+            L, W = side_landmarks(ear + rng.normal(0, jitter), tr + rng.normal(0, jitter))
             cal["L"].append(L)
             cal["W"].append(W)
         if front is not None:
@@ -56,6 +64,10 @@ def codes(res):
     return [r["code"] for r in res["reasons"]]
 
 
+def check(res, code):
+    return next(c for c in res["checks"] if c["code"] == code)
+
+
 def test_ngoi_thang_dat():
     res = run(samples())
     assert res["ok"] and res["reasons"] == []
@@ -64,22 +76,39 @@ def test_ngoi_thang_dat():
     assert res["ok"] and len(res["checks"]) == 6 and all(c["ok"] for c in res["checks"])
 
 
+def test_ngoi_thang_tua_lung_tai_truoc_vai_phai_dat():
+    # ca người thật báo lỗi: tựa lưng nhẹ 10-15 độ, tai trước vai ~20 độ. neck thô = đầu - thân = 20 + 12 = 32 độ
+    # (> 20 độ: kiểm cũ báo NECK_NOT_STRAIGHT sai), nhưng đầu so với phương thẳng đứng chỉ 20 độ.
+    for trunk in (-10.0, -12.0, -15.0):
+        res = run(samples(head=20.0, trunk=trunk))
+        assert res["ok"], (trunk, res["reasons"])
+        assert abs(check(res, "neck")["value"] - 20.0) < 0.2 and abs(check(res, "back")["value"] - trunk) < 0.2
+    # đúng số liệu chủ dự án đã gặp: neck thô 26,8, thân +0,9 -> đầu 27,7 vẫn đạt (p95 GOOD 31,2)
+    assert run(samples(head=27.7, trunk=0.9))["ok"]
+    # baseline thật của dataset P01_S02: neck 23,0 thân -7,3 (đầu 15,7); P01_S01 720p: neck 37,0 thân -15,6 (đầu 21,4)
+    assert run(samples(head=15.7, trunk=-7.3))["ok"] and run(samples(head=21.4, trunk=-15.6))["ok"]
+
+
+def test_cui_co_ro():
+    res = run(samples(head=45.0))                                   # đầu nghiêng trước 45 độ = ngưỡng 30 + 15
+    assert not res["ok"] and codes(res) == ["NECK_NOT_STRAIGHT"], codes(res)
+    assert "+45°" in res["reasons"][0]["message"]
+    assert codes(run(samples(head=36.0))) == ["NECK_NOT_STRAIGHT"]  # vượt ngưỡng 30 là bị bắt
+    assert run(samples(head=29.0))["ok"]
+
+
 def test_gu_lung():
-    res = run(samples(trunk_dx=58))                                 # thân nghiêng ~30 độ: điểm thân 3
+    res = run(samples(head=20.0, trunk=30.0))                       # thân nghiêng 30 độ (> 20), đầu vẫn 20 độ
     assert not res["ok"] and codes(res) == ["BACK_NOT_STRAIGHT"], codes(res)
     assert "gù" in res["reasons"][0]["message"] and "+30°" in res["reasons"][0]["message"]
-    assert run(samples(trunk_dx=36))["ok"] is True                  # ~20 độ vẫn là điểm 2: chấp nhận được
+    assert run(samples(head=20.0, trunk=19.0))["ok"] is True        # dưới 20 độ vẫn chấp nhận được
 
 
-def test_cui_co():
-    res = run(samples(ear_dx=29))                                   # cổ gập ~30 độ: điểm cổ 3
-    assert not res["ok"] and codes(res) == ["NECK_NOT_STRAIGHT"], codes(res)
-    assert "cúi" in res["reasons"][0]["message"]
-
-
-def test_nga_sau_va_ngua_co():
-    assert codes(run(samples(trunk_dx=-45))) == ["BACK_NOT_STRAIGHT"]      # thân ngả sau ~ -24 độ (> 15 độ)
-    res = run(samples(ear_dx=-20))                                         # cổ ngửa ~ -22 độ (điểm 4)
+def test_nga_sau_va_ngua_dau():
+    res = run(samples(head=20.0, trunk=-25.0))                      # ngả sau 25 độ (< -20)
+    assert codes(res) == ["BACK_NOT_STRAIGHT"] and "ngả ra sau" in res["reasons"][0]["message"]
+    assert run(samples(head=20.0, trunk=-18.0))["ok"]               # tựa lưng 18 độ: ngưỡng -20 theo dữ liệu, -15 cũ loại nhầm
+    res = run(samples(head=-10.0))                                  # đầu ngửa ra sau vai
     assert codes(res) == ["NECK_NOT_STRAIGHT"] and "ngửa" in res["reasons"][0]["message"]
 
 
@@ -112,15 +141,33 @@ def test_qua_gan_man_hinh():
 def test_xem_truc_tiep_chua_du_du_lieu():
     res = calibration.evaluate(samples(n=3), CFG, final=False)
     assert res["reasons"] == [] and all(c["ok"] is None for c in res["checks"])
-    res = calibration.evaluate(samples(n=30, ear_dx=29), CFG, final=False)
+    res = calibration.evaluate(samples(n=30, head=45.0), CFG, final=False)
     assert codes(res) == ["NECK_NOT_STRAIGHT"]
 
 
 def test_nguong_tu_cau_hinh_va_gia_tri_sai():
-    t = calibration.thresholds({"calib_still_deg": 12, "calib_visible_ratio": "x", "calib_max_score": True})
-    assert t["calib_still_deg"] == 12.0 and t["calib_visible_ratio"] == 0.8 and t["calib_max_score"] == 2
-    cfg = dict(CFG, calib_still_deg=30.0)
-    assert calibration.evaluate(samples(jitter=15.0), cfg)["ok"] is True      # nới ngưỡng thì cử động nhiều được chấp nhận
+    t = calibration.thresholds({"calib_still_deg": 12, "calib_visible_ratio": "x", "calib_max_neck_deg": True,
+                                "calib_max_score": 3})                 # khóa cũ calib_max_score bị bỏ qua
+    assert t["calib_still_deg"] == 12.0 and t["calib_visible_ratio"] == 0.8 and t["calib_max_neck_deg"] == 30.0
+    assert "calib_max_score" not in t
+    assert calibration.evaluate(samples(jitter=15.0), dict(CFG, calib_still_deg=30.0))["ok"] is True
+    assert codes(run(samples(head=40.0))) == ["NECK_NOT_STRAIGHT"]
+    assert calibration.evaluate(samples(head=40.0), dict(CFG, calib_max_neck_deg=45.0))["ok"] is True
+    assert calibration.evaluate(samples(trunk=25.0), dict(CFG, calib_max_trunk_deg=30.0))["ok"] is True
+    assert calibration.evaluate(samples(trunk=-25.0), dict(CFG, calib_min_trunk_deg=-30.0))["ok"] is True
+
+
+def test_chan_doan_co_so_do_va_nguong():
+    res = run(samples(head=45.0, trunk=25.0))
+    lines = calibration.describe(res)
+    assert len(lines) == 4
+    neck_line = next(l for l in lines if "Cổ thẳng" in l)
+    assert "KHÔNG ĐẠT" in neck_line and "+45.0°" in neck_line and "+0° … +30°" in neck_line, neck_line
+    back_line = next(l for l in lines if "Lưng thẳng" in l)
+    assert "+25.0°" in back_line and "-20° … +20°" in back_line, back_line
+    assert all(c["detail"] for c in res["checks"])
+    res = run(samples(front=1.0, dist_px=150), front=True)
+    assert "40 cm" in check(res, "distance")["detail"] and "≥ 50 cm" in check(res, "distance")["detail"]
 
 
 def test_su_kien_failed_khong_gui_len_may_chu():
@@ -159,7 +206,7 @@ def _events(d):
 
 def test_engine_gu_luc_hieu_chinh_bi_bat_lam_lai_roi_dat():
     class Fake(FakePoseDetector):
-        schedule = [(6, 29), (1e9, 0)]            # cúi cổ trong lượt hiệu chỉnh đầu (0-3 s), ngồi thẳng từ giây 6
+        schedule = [(6, 50), (1e9, 0)]            # cúi đầu 45 độ trong lượt hiệu chỉnh đầu (0-3 s), ngồi thẳng từ giây 6
     engine_mod.PoseDetector = Fake
     with tempfile.TemporaryDirectory() as d:
         rec = Rec()
@@ -183,13 +230,15 @@ def test_engine_gu_luc_hieu_chinh_bi_bat_lam_lai_roi_dat():
 
 def test_engine_khong_luu_baseline_neu_khong_bao_gio_dat():
     class Fake(FakePoseDetector):
-        schedule = [(1e9, 29)]                    # cúi cổ suốt
+        schedule = [(1e9, 50)]                    # cúi đầu suốt
     engine_mod.PoseDetector = Fake
     with tempfile.TemporaryDirectory() as d:
         PostureEngine(_opts(d, front="-1"), notifier=Quiet(), listener=Rec()).run()
         kinds = [e["eventType"] for e in _events(d)]
         assert "CALIBRATED" not in kinds and kinds.count("CALIBRATION_FAILED") >= 3, kinds
         assert "ALERT_STARTED" not in kinds       # chưa có baseline thì không theo dõi/cảnh báo
+        details = next(e for e in _events(d) if e["eventType"] == "CALIBRATION_FAILED")["details"]
+        assert "+45" in details["neck"] and "30" in details["neck"]      # chẩn đoán: số đo + ngưỡng nằm trong sự kiện
 
 
 def test_engine_thieu_vai_cam_laptop_roi_bo_qua():

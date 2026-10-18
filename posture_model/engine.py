@@ -508,10 +508,16 @@ class PostureEngine:
                         print("Hiệu chỉnh không đạt, sẽ làm lại sau", self.CALIB_RETRY_SEC, "giây:")
                         for r in res["reasons"]:
                             print(f"  - [{r['code']}] {r['message']}")
+                        print("  Số đo và ngưỡng từng mục:")
+                        for line in calibration.describe(res):
+                            print("   ", line)
                         self.elog.emit(dict(eventType="CALIBRATION_FAILED", t=now, reasons=res["reasons"],
-                                            checks={c["code"]: c["ok"] for c in res["checks"]}))
+                                            checks={c["code"]: c["ok"] for c in res["checks"]},
+                                            details={c["code"]: c["detail"] for c in res["checks"]}))
                         cal_fail["until"] = now + self.CALIB_RETRY_SEC
                     else:
+                        for line in calibration.describe(res):
+                            print("Kiểm hiệu chỉnh:", line)
                         Lc, Wc = np.stack(cal["L"]), np.stack(cal["W"])
                         side = choose_side(Lc, Wc)
                         f = facing_sign(Lc, side)
