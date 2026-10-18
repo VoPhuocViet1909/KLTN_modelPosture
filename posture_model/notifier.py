@@ -13,13 +13,10 @@ import threading
 import time
 import unicodedata
 
-MESSAGES = {
-    "NECK_TRUNK": ("Tư thế cổ / lưng", "Bạn đang cúi hoặc gù lưng. Hãy ngồi thẳng, kéo vai ra sau."),
-    "SHOULDER_TILT": ("Lệch vai", "Vai đang bị lệch. Cân bằng lại hai vai, đặt hai tay đều lên bàn."),
-    "TOO_CLOSE": ("Quá gần màn hình", "Bạn đang ngồi quá gần màn hình ({distanceCm} cm). Lùi ra tối thiểu {limit} cm."),
-    "SIT_TOO_LONG": ("Ngồi quá lâu", "Bạn đã ngồi liên tục {sittingMin:.0f} phút. Đứng dậy đi lại 2–3 phút nhé."),
-    "EYE_BREAK": ("Nghỉ mắt 20-20-20", "Nhìn một vật cách xa khoảng 6 m trong 20 giây."),
-}
+from ui.tokens import labels
+
+# Tên + lời nhắc lấy từ ui/labels.json (khớp ALERT_LABEL của web và bảng 3.5 KeHoach_NgonNguThietKe.md).
+MESSAGES = {k: (v["label"], v["message"]) for k, v in labels()["alert"].items()}
 
 
 def ascii_vi(s):
@@ -39,11 +36,23 @@ def format_message(ev, cfg=None):
     except (KeyError, ValueError):
         pass
     if ev.get("eventType") == "ALERT_REPEATED":
-        title += f" (nhắc lần {ev.get('level', 2)})"
+        title += labels()["ui"]["repeat_suffix"].format(level=ev.get("level", 2))
     return title, body
 
 
-class Notifier:
+class NotifierBase:
+    """Giao diện thông báo. Engine gọi notifier(ev) cho mỗi sự kiện từ EventLog (kể cả sự kiện không cần báo, lọc theo
+    ev['notify']). Bản OpenCV/plyer bên dưới (Notifier) dùng cho CLI; giao diện Qt có bản riêng (ui/qt_notifier.py)."""
+
+    def __call__(self, ev):
+        raise NotImplementedError
+
+    def active_banner(self):
+        """(tiêu đề, nội dung, mức) đang hiện hoặc None."""
+        return None
+
+
+class Notifier(NotifierBase):
     BANNER_SEC = 6
 
     def __init__(self, cfg):
