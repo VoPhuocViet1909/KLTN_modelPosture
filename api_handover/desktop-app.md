@@ -179,3 +179,20 @@ python posture_model/ui/screenshots.py <thư mục> # ảnh cửa sổ ở từn
 
 Dữ kiện lấy từ nguồn ở trên; "bản stable mới nhất" và nhận định rủi ro là đánh giá của người làm. Kết quả chạy thật ở máy
 phát triển: Python 3.11.9, Windows 11, mediapipe 1.1.1, onnxruntime 1.31.0, opencv-python 5.0.0.93, numpy 2.4.6.
+# Chia sẻ camera từ giao diện (18/10/2026)
+
+Ở bản nguồn `feat/desktop-camera-sharing`, đăng nhập và hoàn tất hiệu chỉnh, sau đó mở
+**Chia sẻ camera lên web**, chọn **Camera hông** hoặc **Camera trước**, bấm **Bật chia sẻ**.
+Camera trước chỉ chọn được khi đang hoạt động. Nếu chưa tìm thấy FFmpeg, chọn tệp
+`ffmpeg.exe` đã chuẩn bị trên máy; app nhớ đường dẫn, không nhớ lựa chọn bật chia sẻ.
+
+Đăng nhập Dashboard cùng tài khoản → Tổng quan → Camera của bạn → chọn đúng thiết bị/góc
+→ **Xem camera**. Chỉ phát một góc mỗi lần; bấm **Dừng chia sẻ** trước khi đổi góc.
+Dừng chia sẻ vẫn giữ giám sát, đăng nhập và outbox. Thu cửa sổ xuống khay vẫn chia sẻ;
+đăng xuất, đổi thiết lập camera hoặc thoát app dừng publisher. Phiên mới mặc định không chia sẻ.
+Lỗi truyền hình không làm dừng phân tích tư thế. Không ghi hình, không âm thanh.
+
+Tái sử dụng media-token/RTSP hiện có, không thay API hay telemetry. CLI vẫn dùng
+`--stream-camera side|front`. Chưa đóng gói lại portable cho tính năng này; webcam/front/LAN
+cần nghiệm thu riêng. Kiểm giả lập runnable: `python posture_model/tests/test_camera_sharing.py`.
+

@@ -60,3 +60,12 @@ quality 3/3, phase2 7/7, layout đạt.
 Giới hạn: bộ đếm mất hình chỉ chạy khi driver trả về từ `read()`; chưa xử lý driver treo bên trong
 lệnh đọc/mở. Chưa kiểm rút/cắm, quyền/bận bằng webcam thật, người thật, gửi thật sau phục hồi,
 bản exe mới hoặc máy sạch. Chưa thêm tự chọn thiết bị để tránh chọn nhầm vai trò camera.
+# Ưu tiên báo cáo ngày 18/10/2026
+
+Theo yêu cầu người dùng, hoàn thiện luồng chức năng chính trước; đóng gói exe/installer,
+updater và triển khai để sau. Bản nguồn `feat/desktop-camera-sharing` bổ sung bật/dừng
+chia sẻ hông/trước trên GUI, mặc định tắt, giữ giám sát khi dừng truyền hình và dọn publisher
+khi đăng xuất. Kiểm runnable ở `posture_model/tests/test_camera_sharing.py`.
+Tiếp theo nghiệm thu webcam/người thật, camera trước và kênh thông báo Windows;
+không suy kết quả video/landmark giả thành độ chính xác thực tế.
+
