@@ -5,6 +5,8 @@ QToolTip { background: #ffffff; color: #1c2433; border: 1px solid #e1e4df; paddi
 
 QFrame#panel { background: #ffffff; border: 1px solid #e1e4df; border-radius: 11px; }
 QFrame#panel QLabel { background: transparent; }
+QScrollArea, QScrollArea > QWidget > QWidget { background: #f4f5f3; border: none; }
+QFrame#panel QLabel#preview { background: #eef0ec; border: 1px solid #e1e4df; border-radius: 6px; color: #5b6472; }
 
 QLabel { background: transparent; }
 QLabel#pageTitle { font-size: 24px; font-weight: 600; }
@@ -14,7 +16,7 @@ QLabel#bigNumber { font-size: 48px; font-weight: 600; }
 QLabel#stateText { font-size: 16px; font-weight: 500; color: #1c2433; }
 QLabel#error { color: #d03b3b; font-size: 14px; }
 
-QPushButton { background: #ffffff; border: 1px solid #d5d9d3; border-radius: 6px; padding: 8px 16px;
+QPushButton { background: #ffffff; border: 1px solid #d5d9d3; border-radius: 6px; padding: 8px 16px; min-height: 26px;
   font-weight: 500; }
 QPushButton:hover { background: #e8eef8; }
 QPushButton:focus { border: 2px solid #2a78d6; padding: 7px 15px; }
@@ -26,10 +28,13 @@ QPushButton#link { border: none; background: transparent; color: #256abf; paddin
 QPushButton#link:hover { background: transparent; text-decoration: underline; }
 QPushButton#link:focus { border: 2px solid #2a78d6; padding: 2px 6px; }
 
-QLineEdit { background: #ffffff; border: 1px solid #d5d9d3; border-radius: 6px; padding: 8px 12px;
+QLineEdit { background: #ffffff; border: 1px solid #d5d9d3; border-radius: 6px; padding: 8px 12px; min-height: 26px;
   selection-background-color: #cde2fb; selection-color: #1c2433; }
 QLineEdit:focus { border: 2px solid #2a78d6; padding: 7px 11px; }
 QLineEdit[invalid="true"] { border-color: #d03b3b; }
+QComboBox { background: #ffffff; border: 1px solid #d5d9d3; border-radius: 6px; min-height: 30px; padding: 6px 12px; }
+QComboBox:focus { border: 2px solid #2a78d6; padding: 5px 11px; }
+QComboBox QAbstractItemView { background: #ffffff; selection-background-color: #e8eef8; selection-color: #1c2433; }
 
 QCheckBox { spacing: 8px; }
 QCheckBox::indicator { width: 16px; height: 16px; border: 1px solid #d5d9d3; border-radius: 4px; background: #ffffff; }

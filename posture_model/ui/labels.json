@@ -1,5 +1,5 @@
 {
-  "_source": "state + alert.label khớp GIT_frontend/src/lib/labels.ts (STATE_META, ALERT_LABEL, SEVERITY_LABEL), kiểm ngày 2026-10-18. alert.message lấy từ bảng 3.5 của TaiLieu/KeHoach_NgonNguThietKe.md. Đổi tên ở web thì chép lại đây.",
+  "_source": "KLTN-DS-1: state + alert.label + severity khớp KLTN_dashboard/src/lib/labels.ts, kiểm bằng design-system/scripts/check_sync.py. alert.message là lời nhắc cục bộ của desktop. Đổi nhãn chung phải đồng bộ hai repo.",
   "state": {
     "GOOD": {"label": "Ngồi đúng", "icon": "circle-check"},
     "BAD": {"label": "Đang ngồi sai", "icon": "triangle-alert"},

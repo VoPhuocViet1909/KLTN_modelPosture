@@ -1,18 +1,19 @@
 @echo off
-REM Dong goi Desktop App thanh thu muc chay duoc khong can cai Python: dist\PostureMonitor\PostureMonitor.exe
-REM Chay 1 lan realtime_app.py truoc de tai face_landmarker.task, roi moi chay file nay.
-cd /d %~dp0
-pip install pyinstaller plyer
-pyinstaller --noconfirm --name PostureMonitor ^
+setlocal
+cd /d "%~dp0"
+REM Use the project venv. Build dependency: pyinstaller==6.22.3
+python -m PyInstaller --noconfirm --windowed --name PostureMonitor ^
+  --exclude-module torch --exclude-module tensorflow ^
+  --exclude-module PyQt5 --exclude-module PyQt6 ^
   --collect-all mediapipe --collect-binaries onnxruntime ^
   --hidden-import plyer.platforms.win.notification ^
+  --hidden-import keyring.backends.Windows ^
   --add-data "posture_transformer.onnx;." ^
   --add-data "pose_landmarker_full.task;." ^
+  --add-data "face_landmarker.task;." ^
   --add-data "posture_config.json;." ^
   --add-data "schemas;schemas" ^
-  realtime_app.py
-if exist face_landmarker.task copy /y face_landmarker.task dist\PostureMonitor\_internal\ >nul
-if exist app_config.json copy /y app_config.json dist\PostureMonitor\ >nul
-echo.
-echo Xong: dist\PostureMonitor\PostureMonitor.exe --side 1 --front 0
-pause
+  --add-data "ui;ui" app.py
+if errorlevel 1 exit /b 1
+echo Open dist\PostureMonitor\PostureMonitor.exe (keep the whole folder).
+REM Never copy app_config.json, outbox, credentials or runtime logs into a release.
