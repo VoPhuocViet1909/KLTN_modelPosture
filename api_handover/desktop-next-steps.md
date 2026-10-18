@@ -87,7 +87,7 @@ camera và Kết nối lại. Trên Dashboard cùng tài khoản thử từng g�
 không đánh dấu độ chính xác mô hình từ landmark/video giả. Đóng gói vẫn để sau.
 
 Tích hợp local thật với hai video/landmark giả đã đạt: GUI chọn Camera trước → Dashboard
-decode 640×360; đo khoảng cách bằng nhánh IPD và phát SHОULDER_TILT/TOO_CLOSE;
+decode 640×360; đo khoảng cách bằng nhánh IPD và phát SHOULDER_TILT/TOO_CLOSE;
 dừng container Gateway rồi bật lại giữ/gửi bù 3 mục đúng ID/payload; refresh xoay token thật;
 thu hồi refresh token ở server đưa app về đăng nhập, giữ 3 mục rồi gửi đủ sau đăng nhập lại.
 Lượt cuối outbox 15 sent/0 pending/0 dead, fixture user đã khóa và Gateway được phục hồi.
