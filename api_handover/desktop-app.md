@@ -13,6 +13,9 @@ python -m venv .venv                       # trong thư mục KLTN_modelPosture;
 ```
 
 Cửa sổ chính (~420×560) không hiện camera; nút **Xem camera** mở khung hình có vẽ khung xương (hình không lưu, không gửi).
+Cửa sổ camera (`ui/camera_view.py`, mặc định 960×560) co hai hình vừa vùng hiển thị, giữ tỉ lệ, thấy trọn khung gốc (không cắt trái/phải); đủ rộng thì xếp ngang,
+hẹp thì xếp dọc, co lại khi đổi kích thước (`layout_rects`, `FitView`). Trước đây ghép 2 hình thành ảnh ~1070 px trong QLabel ~560 px nên chỉ thấy phần giữa
+(camera hông mất bên trái, camera laptop mất bên phải). Test: `python posture_model/tests/test_camera_view.py` (hình hiển thị chứa đủ 4 góc của khung gốc ở nhiều cỡ cửa sổ).
 Đóng cửa sổ = thu xuống khay; menu khay: **Mở**, **Hiệu chỉnh lại**, **Thoát**. Chọn camera tạm bằng `--side`, `--front`
 (`--side-video`, `--front-video` để chạy thử trên video). Ngưỡng cảnh báo chỉ sửa trên web, app chỉ nhận và hiển thị.
 
