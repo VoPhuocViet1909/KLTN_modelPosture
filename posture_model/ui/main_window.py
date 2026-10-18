@@ -1,8 +1,8 @@
-"""Cửa sổ chính ~420x560. Hai trang: Đăng nhập (LoginView) và Trạng thái (thước dọi, nhãn trạng thái, thời gian ngồi,
+"""Cửa sổ co giãn. Hai trang: Đăng nhập (LoginView) và Trạng thái (thước dọi, nhãn trạng thái, thời gian ngồi,
 khoảng cách mắt–màn hình, kết nối). Không hiện camera mặc định; nút 'Xem camera' mở cửa sổ riêng."""
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (QFrame, QGridLayout, QHBoxLayout, QLabel, QMainWindow, QPushButton, QStackedWidget,
-                               QVBoxLayout, QWidget)
+                               QScrollArea, QVBoxLayout, QWidget)
 
 from ui import icons
 from ui.calibration_view import CalibrationView
@@ -30,16 +30,25 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Posture Monitor")
-        self.setFixedSize(420, 560)
+        self.setMinimumSize(400, 400)
+        self.resize(480, 700)
         root = QWidget()
         root.setObjectName("root")
-        self.setCentralWidget(root)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setWidget(root)
+        self.setCentralWidget(scroll)
         outer = QVBoxLayout(root)
-        outer.setContentsMargins(16, 16, 16, 16)
+        outer.setContentsMargins(20, 20, 20, 20)
+        outer.setSpacing(16)
+        brand = QLabel("Giám sát tư thế")
+        brand.setObjectName("sectionTitle")
+        outer.addWidget(brand)
         self.stack = QStackedWidget()
         outer.addWidget(self.stack)
-        self.btn_setup = QPushButton("Thiết lập camera / máy chủ")
-        self.btn_setup.setObjectName("link")
+        self.btn_setup = QPushButton("Thiết lập camera và máy chủ")
+        self.btn_setup.setMinimumHeight(44)
         self.btn_setup.clicked.connect(self.setupRequested)
         outer.addWidget(self.btn_setup)
 
@@ -119,6 +128,7 @@ class MainWindow(QMainWindow):
         left.addWidget(self.conn)
         self.account = QLabel("")
         self.account.setObjectName("note")
+        self.account.setWordWrap(True)
         self.account.setIndent(20)
         left.addWidget(self.account)
         self.btn_login = QPushButton("Đăng nhập")
