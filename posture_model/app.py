@@ -32,6 +32,8 @@ def parse_args(argv=None):
     ap.add_argument("--outbox", default=os.path.join(APP_DIR, "out", "outbox.db"))
     ap.add_argument("--no-face", action="store_true", help="không dùng Face Landmarker, đo bằng khoảng cách 2 mắt")
     ap.add_argument("--max-sec", type=float, default=None, help="dừng sau N giây (kiểm thử)")
+    ap.add_argument("--api-base-url", default=None,
+                    help="địa chỉ backend (ưu tiên hơn api_base_url trong app_config.json), vd http://localhost:8080")
     return ap.parse_args(argv)
 
 
@@ -42,7 +44,7 @@ def main(argv=None):
                          no_face=a.no_face, max_sec=a.max_sec)
     app = QApplication(sys.argv[:1])
     app.setApplicationName("Posture Monitor")
-    ctl = AppController(app, opts)
+    ctl = AppController(app, opts, base_url=a.api_base_url)
     ctl.start()
     return app.exec()
 

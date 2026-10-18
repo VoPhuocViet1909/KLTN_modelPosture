@@ -39,8 +39,9 @@ def main(out):
                          events=os.path.join(d, "ev.jsonl"), metrics_out=os.path.join(d, "m.jsonl"),
                          outbox=os.path.join(d, "ob.db"))
     app = QApplication(sys.argv[:1])
-    ctl = AppController(app, opts)
+    ctl = AppController(app, opts, store=None)
     ctl.start()
+    ctl.window.login.btn_local.click()               # "Dùng không đăng nhập": engine chạy local, không gửi
     seen, stalls = [], []
     ctl.bridge.state.connect(lambda s: seen.append(s["state"]) if not seen or seen[-1] != s["state"] else None)
     last = [time.monotonic()]
