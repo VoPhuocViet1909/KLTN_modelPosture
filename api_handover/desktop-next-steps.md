@@ -68,4 +68,3 @@ chia sẻ hông/trước trên GUI, mặc định tắt, giữ giám sát khi d�
 khi đăng xuất. Kiểm runnable ở `posture_model/tests/test_camera_sharing.py`.
 Tiếp theo nghiệm thu webcam/người thật, camera trước và kênh thông báo Windows;
 không suy kết quả video/landmark giả thành độ chính xác thực tế.
-

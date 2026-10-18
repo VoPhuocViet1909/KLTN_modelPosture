@@ -195,4 +195,3 @@ Lỗi truyền hình không làm dừng phân tích tư thế. Không ghi hình,
 Tái sử dụng media-token/RTSP hiện có, không thay API hay telemetry. CLI vẫn dùng
 `--stream-camera side|front`. Chưa đóng gói lại portable cho tính năng này; webcam/front/LAN
 cần nghiệm thu riêng. Kiểm giả lập runnable: `python posture_model/tests/test_camera_sharing.py`.
-

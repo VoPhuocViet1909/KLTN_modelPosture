@@ -103,4 +103,3 @@ Bản nguồn `feat/desktop-camera-sharing`: đăng nhập → hiệu chỉnh �
 chọn thiết bị/góc và **Xem camera**. **Dừng chia sẻ** giữ giám sát tư thế. Đăng xuất/thoát/đổi
 thiết lập dừng publisher, phiên mới mặc định tắt. Đóng cửa sổ xuống khay vẫn tiếp tục chia sẻ.
 Camera trước phải đang hoạt động. CLI phía dưới vẫn dùng được. Portable cũ chưa có nút mới.
-
