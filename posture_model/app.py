@@ -59,7 +59,10 @@ def main(argv=None):
                          no_face=a.no_face, max_sec=a.max_sec)
     ctl = AppController(app, opts, base_url=server)
     ctl.start()
-    return app.exec()
+    code = app.exec()
+    # Finalize Qt before Python tears down controller/widget reference cycles.
+    app.shutdown()
+    return code
 
 
 if __name__ == "__main__":

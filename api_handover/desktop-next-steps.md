@@ -92,3 +92,9 @@ dừng container Gateway rồi bật lại giữ/gửi bù 3 mục đúng ID/pay
 thu hồi refresh token ở server đưa app về đăng nhập, giữ 3 mục rồi gửi đủ sau đăng nhập lại.
 Lượt cuối outbox 15 sent/0 pending/0 dead, fixture user đã khóa và Gateway được phục hồi.
 Đây là lỗi dịch vụ thật, không phải rút cáp mạng; ép hạn client để kiểm refresh, chưa chờ TTL 900 giây.
+
+Kiểm thoát Qt đã tái hiện lỗi native khi Python tự hủy các wrapper sau event loop.
+`app.py` và bài kiểm E2E nay gọi API `QApplication.shutdown()` có sẵn trước khi trả về;
+3 lượt E2E liên tiếp exit 0 (GOOD/BAD/GOOD, UI gap tối đa 62–63 ms), điểm vào `app.main`
+trên Windows native với nguồn giả cũng exit 0. Không thay phiên bản Qt. Kiểm tín hiệu từ
+worker xác nhận widget cập nhật trên luồng UI; kết nối Auto hiện có được giữ nguyên.

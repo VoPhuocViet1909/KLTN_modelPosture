@@ -4,6 +4,7 @@ import json
 import os
 import sys
 import tempfile
+import threading
 from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -43,6 +44,15 @@ def main():
     ctl = AppController(app, EngineOptions(), store=None, auto_resume=False)
     ctl.mode = "local"
     ctl.cfg.values.update(notify_toast=True, notify_sound=True, notify_popup=True)
+    ui_thread = threading.get_ident()
+    with patch.object(ctl.window, "set_state", side_effect=lambda s: (
+            assert_ui_thread(ui_thread))) as state:
+        worker = threading.Thread(target=lambda: ctl.bridge.state.emit(dict(state="GOOD")))
+        worker.start()
+        worker.join()
+        assert not state.called, "Engine signals must wait for the UI event loop"
+        app.processEvents()
+        assert state.call_count == 1
 
     def flush():
         app.processEvents()
@@ -88,6 +98,10 @@ def main():
     ctl.app.aboutToQuit.disconnect(ctl._shutdown)
     ctl.window.hide()
     print("PASS: incomplete/invalid acknowledgements retain IDs; severity/config routing, popup repeat/dismiss, stop/login/finished cleanup")
+
+
+def assert_ui_thread(expected):
+    assert threading.get_ident() == expected, "Widgets must only update on the UI thread"
 
 
 if __name__ == "__main__":
