@@ -34,6 +34,7 @@ class LivePublisher:
         self.process_lock = threading.Lock()
         self.process = None
         self.next_frame = 0
+        self.state = "connecting"
         self.thread = threading.Thread(target=self._run, name="camera-publisher", daemon=True)
 
     def start(self):
@@ -82,6 +83,7 @@ class LivePublisher:
             process, expiry = None, None
             renew_at = float("inf")
             try:
+                self.state = "connecting"
                 grant = self._grant()
                 url = self.rtsp_base + "/" + grant["path"] + "?token=" + urllib.parse.quote(grant["token"], safe="")
                 command = [self.ffmpeg, "-hide_banner", "-loglevel", "error", "-f", "rawvideo",
@@ -114,6 +116,7 @@ class LivePublisher:
                             if not written:
                                 raise BrokenPipeError()
                             remaining = remaining[written:]
+                        self.state = "publishing"
             except (OSError, ValueError, KeyError, TypeError):
                 # FFmpeg stderr/URLs and HTTP exceptions can contain credentials. Never print them.
                 if not self.stopped.is_set() and time.monotonic() < renew_at:
@@ -129,13 +132,16 @@ class LivePublisher:
                 with self.process_lock:
                     self.process = None
             if time.monotonic() < renew_at:
+                self.state = "retrying"
                 self.stopped.wait(5)
 
-    def stop(self):
+    def stop(self, wait=True):
         self.stopped.set()
+        self.state = "stopped"
         with self.condition:
             self.frames.clear()
             self.condition.notify_all()
         self._kill()
-        if self.thread.is_alive() and self.thread is not threading.current_thread():
+        if wait and self.thread.is_alive() and self.thread is not threading.current_thread():
             self.thread.join(timeout=7)
+        atexit.unregister(self.stop)

@@ -99,6 +99,26 @@ def main():
         ctl.configure_devices()
         assert restarted == ["local", "local"]
         assert ctl.opts.side == "3"
+        # Lỗi không bị finished ghi đè; phục hồi dùng lại phiên, khóa địa chỉ máy chủ.
+        ctl._on_error("Mất hình camera trước.")
+        ctl._on_finished("camera_lost", {})
+        assert "Mất hình camera trước" in ctl.window.hint.text()
+        assert "Kết nối lại" in ctl.window.btn_setup.text()
+        assert not ctl.camera.isVisible()
+        auth = object()
+        ctl.auth, ctl.remember, ctl.mode = auth, True, "session"
+        ctl._start_session = lambda a, r: restarted.append((a, r))
+        class SessionSetup(AcceptedSetup):
+            def __init__(self, *args, **kwargs):
+                assert kwargs["server_editable"] is False
+        setup.SetupDialog = SessionSetup
+        ctl.configure_devices()
+        assert restarted[-1] == (auth, True) and ctl.auth is auth
+        # Không để lỗi cũ đổi màn hình khi đang đăng xuất/đổi camera.
+        ctl._leaving = True
+        previous = ctl.window.hint.text()
+        ctl._on_error("Lỗi cũ")
+        assert ctl.window.hint.text() == previous
         ctl.app.aboutToQuit.disconnect(ctl._shutdown)
         ctl.window.deleteLater()
         ctl.camera.deleteLater()
