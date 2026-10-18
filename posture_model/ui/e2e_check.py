@@ -63,6 +63,7 @@ def main(out):
     QTimer.singleShot(21000, ctl.camera.close)
     QTimer.singleShot(27000, app.quit)
     app.exec()
+    app.shutdown()
     print("trạng thái đã thấy:", seen)
     print(f"nhịp UI: tối đa {max(stalls) * 1000:.0f} ms, trung bình {sum(stalls) / len(stalls) * 1000:.1f} ms")
     ok = seen[:4] == ["CALIBRATING", "GOOD", "BAD", "GOOD"] and max(stalls) < 0.25

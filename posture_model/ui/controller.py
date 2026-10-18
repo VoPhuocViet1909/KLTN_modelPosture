@@ -183,6 +183,7 @@ class AppController(QObject):
 
     def _shutdown(self):
         self._leaving = True
+        self._clear_notices()
         self.camera.hide()
         if self.engine is not None:
             self.engine.want_frames = False
@@ -222,6 +223,7 @@ class AppController(QObject):
     # ---------------------------------------------------------------- đăng nhập
     def _to_login(self, error=None, info=None):
         """Về màn đăng nhập. Engine đã dừng. Outbox vẫn giữ trên đĩa."""
+        self._clear_notices()
         self.auth, self.remember, self.mode = None, False, "login"
         self.engine = self.thread = None
         self._leaving = False
@@ -321,6 +323,7 @@ class AppController(QObject):
 
     def _stop_engine(self, then):
         """Dừng engine không chặn giao diện; xong thì gọi then(). Không có engine thì gọi ngay."""
+        self._clear_notices()
         th = self.thread
         if th is None or th.isFinished() or not th.isRunning():
             then()
@@ -384,6 +387,7 @@ class AppController(QObject):
             self._session_lost(info.get("lostKind"))
 
     def _on_finished(self, reason, stats):
+        self._clear_notices()
         if self.mode != "login" and not self._leaving:
             self.window.set_state(dict(state="OFFLINE"))
             self.window.set_stream({}, False)
@@ -398,9 +402,7 @@ class AppController(QObject):
             return
         self._engine_error = msg + " Chọn Kết nối lại / chọn camera để kiểm tra hình và tiếp tục."
         self.camera.hide()
-        self.window.banner.hide()
-        if self._dialog is not None:
-            self._dialog.close()
+        self._clear_notices()
         self.window.set_state(dict(state="OFFLINE"))
         self.window.set_stream({}, False)
         self.window.hint.setText(self._engine_error)
@@ -409,8 +411,15 @@ class AppController(QObject):
         if self.tray.isVisible():
             self.tray.showMessage("Posture Monitor", msg, QSystemTrayIcon.Warning, 8000)
 
+    def _clear_notices(self):
+        self.window.banner.hide()
+        if self._dialog is not None:
+            self._dialog.close()
+
     def _on_notice(self, title, body, sev, alert_type, event_type):
         """Kênh theo mức: LOW banner + toast; MEDIUM + bíp; HIGH + hộp thoại (tôn trọng notify_* trong cấu hình)."""
+        if self._leaving or self.mode == "login" or self._engine_error:
+            return
         self.window.show_notice(alert_type, title, body)
         if self.cfg["notify_toast"] and self.tray.isVisible():
             self.tray.showMessage(title, body, QSystemTrayIcon.NoIcon, 6000)

@@ -68,3 +68,33 @@ chia sẻ hông/trước trên GUI, mặc định tắt, giữ giám sát khi d�
 khi đăng xuất. Kiểm runnable ở `posture_model/tests/test_camera_sharing.py`.
 Tiếp theo nghiệm thu webcam/người thật, camera trước và kênh thông báo Windows;
 không suy kết quả video/landmark giả thành độ chính xác thực tế.
+
+## Kiểm tự động cho demo — 18/10/2026
+
+`python posture_model/tests/test_demo_reliability.py` kiểm xác nhận telemetry phải đủ ID,
+không mất dữ liệu khi phản hồi thiếu/sai; định tuyến LOW/MEDIUM/HIGH và các cờ notify;
+mỗi lúc một popup, đóng rồi mở lại được; dừng/đăng xuất/kết thúc phiên dọn popup/banner,
+không phát cảnh báo đang chờ khi đã về đăng nhập hoặc đang rời phiên.
+
+Kiểm native Windows đã gọi toast/âm thanh qua luồng thông báo và mở popup Qt thật;
+đóng/mở lại rồi về đăng nhập dọn sạch, nhịp UI tối đa 47 ms. Windows báo có khay và hỗ trợ
+toast. Đây là bằng chứng gọi API/hiển thị popup, chưa thay xác nhận nghe âm thanh/nhìn toast
+trong Windows Notification Center hoặc khi bật Do Not Disturb.
+
+Người dùng chọn tự thử webcam sau. Khi thử: đặt hai camera đúng góc, ngồi thẳng hiệu chỉnh;
+cúi/gù, nghiêng vai, tiến gần màn hình rồi ngồi đúng lại; rời ghế để kiểm AWAY; thử rút/cắm
+camera và Kết nối lại. Trên Dashboard cùng tài khoản thử từng góc. Ghi kết quả thực tế,
+không đánh dấu độ chính xác mô hình từ landmark/video giả. Đóng gói vẫn để sau.
+
+Tích hợp local thật với hai video/landmark giả đã đạt: GUI chọn Camera trước → Dashboard
+decode 640×360; đo khoảng cách bằng nhánh IPD và phát SHOULDER_TILT/TOO_CLOSE;
+dừng container Gateway rồi bật lại giữ/gửi bù 3 mục đúng ID/payload; refresh xoay token thật;
+thu hồi refresh token ở server đưa app về đăng nhập, giữ 3 mục rồi gửi đủ sau đăng nhập lại.
+Lượt cuối outbox 15 sent/0 pending/0 dead, fixture user đã khóa và Gateway được phục hồi.
+Đây là lỗi dịch vụ thật, không phải rút cáp mạng; ép hạn client để kiểm refresh, chưa chờ TTL 900 giây.
+
+Kiểm thoát Qt đã tái hiện lỗi native khi Python tự hủy các wrapper sau event loop.
+`app.py` và bài kiểm E2E nay gọi API `QApplication.shutdown()` có sẵn trước khi trả về;
+3 lượt E2E liên tiếp exit 0 (GOOD/BAD/GOOD, UI gap tối đa 62–63 ms), điểm vào `app.main`
+trên Windows native với nguồn giả cũng exit 0. Không thay phiên bản Qt. Kiểm tín hiệu từ
+worker xác nhận widget cập nhật trên luồng UI; kết nối Auto hiện có được giữ nguyên.

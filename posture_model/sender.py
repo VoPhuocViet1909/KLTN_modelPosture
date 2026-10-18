@@ -158,6 +158,13 @@ class Sender(threading.Thread):
                   self._opener.open(req, timeout=self.timeout)) as r:
                 raw = r.read()
             res = json.loads(raw) if raw else {}
+            accepted, rejected_items = res["accepted"], res["rejected"]
+            if not isinstance(accepted, list) or not isinstance(rejected_items, list):
+                raise ValueError("Invalid acknowledgement")
+            rejected = {r["id"]: r.get("reason", "rejected") for r in rejected_items}
+            if (len(set(accepted)) != len(accepted) or len(rejected) != len(rejected_items)
+                    or set(accepted) & rejected.keys() or set(accepted) | rejected.keys() != set(ids)):
+                raise ValueError("Incomplete acknowledgement")
         except urllib.error.HTTPError as e:
             if e.code == 413 and self.batch_max > 1:             # lô quá lớn -> chia nhỏ
                 self.batch_max = max(1, self.batch_max // 2)
@@ -170,9 +177,8 @@ class Sender(threading.Thread):
         except Exception:                                       # Không ghi URL/token vào outbox/log.
             self._fail(ids, "Telemetry unavailable or invalid response", offline=True)
             return False
-        rejected = {r["id"]: r.get("reason", "rejected") for r in res.get("rejected", []) if "id" in r}
         self.outbox.mark_dead(list(rejected.items()))
-        ok = [i for i in ids if i not in rejected]
+        ok = accepted
         self.outbox.mark_sent(ok)
         if self.online is not True:
             print("[sender] đã kết nối server")
