@@ -45,7 +45,7 @@ DEFAULTS = {
     "calib_visible_ratio": 0.8,      # cam hông thấy đủ tai-vai-hông ở >= 80% số khung
     "calib_max_neck_deg": 30.0,      # trung vị góc ĐẦU so với phương thẳng đứng (vai->tai) tối đa; p95 khung GOOD 31,2 làm tròn
     "calib_min_neck_deg": 0.0,       # ... và tối thiểu (đầu ngửa ra sau)
-    "calib_max_trunk_deg": 20.0,     # trung vị góc thân tối đa (gù / nghiêng ra trước)
+    "calib_max_trunk_deg": 10.0,     # trung vị góc thân tối đa (gù / nghiêng ra trước); GOOD thô > 10: 0,02%
     "calib_min_trunk_deg": -20.0,    # trung vị góc thân tối thiểu (ngả sau); -15 cũ loại nhầm 10,6% khung GOOD
     "calib_still_deg": 5.0,          # độ lệch chuẩn góc cổ / thân tối đa (ngồi yên)
     "calib_front_ratio": 0.5,        # cam laptop thấy đủ 2 vai ở >= 50% số khung

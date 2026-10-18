@@ -18,7 +18,7 @@ from fake_pose import FakePoseDetector, make_blank_video, side_landmarks, write_
 from notifier import NotifierBase  # noqa: E402
 from sender import Sender  # noqa: E402
 
-CFG = {"calib_visible_ratio": 0.8, "calib_max_neck_deg": 30.0, "calib_min_neck_deg": 0.0, "calib_max_trunk_deg": 20.0,
+CFG = {"calib_visible_ratio": 0.8, "calib_max_neck_deg": 30.0, "calib_min_neck_deg": 0.0, "calib_max_trunk_deg": 10.0,
        "calib_min_trunk_deg": -20.0, "calib_still_deg": 5.0, "calib_front_ratio": 0.5,
        "distance_on_cm": 50, "distance_off_cm": 55}
 
@@ -98,10 +98,13 @@ def test_cui_co_ro():
 
 
 def test_gu_lung():
-    res = run(samples(head=20.0, trunk=30.0))                       # thân nghiêng 30 độ (> 20), đầu vẫn 20 độ
+    res = run(samples(head=20.0, trunk=30.0))                       # thân nghiêng 30 độ (> 10), đầu vẫn 20 độ
     assert not res["ok"] and codes(res) == ["BACK_NOT_STRAIGHT"], codes(res)
     assert "gù" in res["reasons"][0]["message"] and "+30°" in res["reasons"][0]["message"]
-    assert run(samples(head=20.0, trunk=19.0))["ok"] is True        # dưới 20 độ vẫn chấp nhận được
+    assert codes(run(samples(head=20.0, trunk=15.0))) == ["BACK_NOT_STRAIGHT"]   # 15 độ: trước đây (ngưỡng 20) lọt, nay bị bắt
+    assert codes(run(samples(head=20.0, trunk=12.0))) == ["BACK_NOT_STRAIGHT"]
+    assert run(samples(head=20.0, trunk=9.0))["ok"] is True         # dưới 10 độ vẫn chấp nhận được
+    assert run(samples(head=27.7, trunk=0.9))["ok"]                 # số đo thật (thân +0,9) vẫn đạt
 
 
 def test_nga_sau_va_ngua_dau():
@@ -164,7 +167,7 @@ def test_chan_doan_co_so_do_va_nguong():
     neck_line = next(l for l in lines if "Cổ thẳng" in l)
     assert "KHÔNG ĐẠT" in neck_line and "+45.0°" in neck_line and "+0° … +30°" in neck_line, neck_line
     back_line = next(l for l in lines if "Lưng thẳng" in l)
-    assert "+25.0°" in back_line and "-20° … +20°" in back_line, back_line
+    assert "+25.0°" in back_line and "-20° … +10°" in back_line, back_line
     assert all(c["detail"] for c in res["checks"])
     res = run(samples(front=1.0, dist_px=150), front=True)
     assert "40 cm" in check(res, "distance")["detail"] and "≥ 50 cm" in check(res, "distance")["detail"]

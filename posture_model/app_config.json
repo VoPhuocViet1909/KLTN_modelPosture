@@ -24,7 +24,7 @@
   "calib_visible_ratio": 0.8,
   "calib_max_neck_deg": 30.0,
   "calib_min_neck_deg": 0.0,
-  "calib_max_trunk_deg": 20.0,
+  "calib_max_trunk_deg": 10.0,
   "calib_min_trunk_deg": -20.0,
   "calib_still_deg": 5.0,
   "calib_front_ratio": 0.5,

@@ -50,7 +50,7 @@ Quy ước góc (`frame_angles`): thân (trunk) dương khi nghiêng ra trước
 | Kiểm tra (mã lỗi) | Điều kiện đạt (trung vị cửa sổ hiệu chỉnh) | Khóa cấu hình (`app_config.json`) |
 | --- | --- | --- |
 | Thấy người ở cam hông (`SIDE_NOT_VISIBLE`) | tai–vai–hông (visibility ≥ 0,5) ở ≥ 80% số khung, tối thiểu 10 khung | `calib_visible_ratio` = 0.8 |
-| Lưng thẳng (`BACK_NOT_STRAIGHT`) | góc thân từ −20° đến +20° (+ = nghiêng ra trước) | `calib_min_trunk_deg` = −20, `calib_max_trunk_deg` = 20 |
+| Lưng thẳng (`BACK_NOT_STRAIGHT`) | góc thân từ −20° đến +10° (+ = nghiêng ra trước) | `calib_min_trunk_deg` = −20, `calib_max_trunk_deg` = 10 |
 | Cổ thẳng (`NECK_NOT_STRAIGHT`) | góc **đầu so với phương thẳng đứng** từ 0° đến +30° (+ = đầu ra trước vai) | `calib_min_neck_deg` = 0, `calib_max_neck_deg` = 30 |
 | Ngồi yên (`MOVING_TOO_MUCH`) | độ lệch chuẩn góc cổ và góc thân ≤ 5° | `calib_still_deg` = 5.0 |
 | Thấy hai vai (`SHOULDERS_NOT_VISIBLE`), nếu cam laptop bật | `shoulder_tilt` hợp lệ ở ≥ 50% số khung | `calib_front_ratio` = 0.5 |
@@ -91,8 +91,8 @@ của đúng phiên. Baseline thô lấy từ hai nguồn có thật:
 - **`calib_min_neck_deg` = 0:** tai không ra sau vai (GOOD p0,1 = 4,5°).
 - **`calib_min_trunk_deg` = −20:** khung GOOD thô < −15°: 10,6% (chủ yếu phiên P01_S01 tựa lưng, baseline −15,6°) nên ngưỡng −15° cũ loại nhầm người tựa lưng; < −20°: 0,11%.
   Khung LEAN_BACKWARD thô < −20°: 89,9%.
-- **`calib_max_trunk_deg` = 20 (giữ như cũ, điểm RULA 2):** GOOD thô > 20°: 0%, nhưng > 10°: chỉ 0,02%, trong khi SLOUCH thô ≤ 20° là 73% và ≤ 10° là 20,5% (LEAN_FORWARD ≤ 20°: 38,4%).
-  Nghĩa là 20° bỏ lọt nhiều khung gù; số liệu ủng hộ 10° nếu muốn chặt hơn (đổi bằng `calib_max_trunk_deg`).
+- **`calib_max_trunk_deg` = 10 (đổi từ 20 theo chính số liệu này):** khung GOOD thô > 10°: chỉ 0,02% (> 20°: 0%; p99 thân thô GOOD 4,8°; baseline thân thô lớn nhất đã đo +0,9°).
+  Ở ngưỡng 20° có 73% khung SLOUCH và 38,4% khung LEAN_FORWARD lọt qua; ở 10° chỉ còn 20,5% SLOUCH và 1,4% LEAN_FORWARD lọt. Nếu người dùng thật hay bị loại nhầm thì nới bằng `calib_max_trunk_deg`.
 - **Hạn chế:** chỉ 3 người, 6 phiên dataset + 2 baseline chạy thật; baseline P01_S01 có hai độ phân giải nhưng đầu so với đứng gần như nhau (21,4 và 21,6). Các ngưỡng cần chỉnh lại khi có thêm người.
 
 ### Còn lại

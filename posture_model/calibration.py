@@ -24,14 +24,15 @@ NGUỒN SỐ LIỆU CỦA NGƯỠNG (tính ngày 18/10/2026, xem api_handover/de
      calib_min_neck_deg = 0 (tai không ra sau vai; GOOD p0,1 = 4,5°).
   Thân ngả sau: khung GOOD thô < -15°: 10,6% (chủ yếu phiên P01_S01 tựa lưng, baseline -15,6°) nên ngưỡng -15° cũ loại nhầm;
   < -20°: 0,11%; còn khung LEAN_BACKWARD thô: < -20°: 89,9%  => calib_min_trunk_deg = -20.
-  Thân ra trước: giữ calib_max_trunk_deg = 20 (điểm RULA 2). Số liệu gợi ý chặt hơn: GOOD thô > 10° chỉ 0,02%, trong khi
-  SLOUCH thô <= 10° là 20,5% và <= 20° là 73% (nghĩa là ngưỡng 20 bỏ lọt nhiều khung gù); đổi bằng calib_max_trunk_deg.
+  Thân ra trước: calib_max_trunk_deg = 10 (trước là 20 = điểm RULA 2). Khung GOOD thô > 10°: chỉ 0,02% (p99 thân thô GOOD 4,8°;
+  baseline thân thô lớn nhất đã đo +0,9°), trong khi ở ngưỡng 20° có 73% khung SLOUCH và 38,4% khung LEAN_FORWARD lọt qua;
+  ở 10° chỉ còn 20,5% SLOUCH và 1,4% LEAN_FORWARD lọt. Nới lại bằng calib_max_trunk_deg nếu người dùng thật hay bị loại nhầm.
 
 Ngưỡng nằm trong app_config.json (khóa calib_*, chỉ ở máy, không đồng bộ từ máy chủ):
   calib_visible_ratio   0.8   cam hông thấy đủ tai-vai-hông ở >= 80% số khung
   calib_max_neck_deg    30    trung vị góc ĐẦU so với phương thẳng đứng tối đa
   calib_min_neck_deg    0     ... và tối thiểu (đầu ngửa ra sau)
-  calib_max_trunk_deg   20    trung vị góc thân tối đa (gù / nghiêng ra trước)
+  calib_max_trunk_deg   10    trung vị góc thân tối đa (gù / nghiêng ra trước)
   calib_min_trunk_deg   -20   trung vị góc thân tối thiểu (ngả sau)
   calib_still_deg       5.0   độ lệch chuẩn góc cổ / thân tối đa (ngồi yên)
   calib_front_ratio     0.5   cam laptop thấy đủ 2 vai ở >= 50% số khung
@@ -48,7 +49,7 @@ WARMUP_SAMPLES = 8          # hiển thị kết quả trực tiếp khi đã c�
 EPS_DEG = 0.05              # dung sai làm tròn khi so với ngưỡng (tránh 0,0000001° làm trượt)
 
 DEFAULTS = {"calib_visible_ratio": 0.8, "calib_max_neck_deg": 30.0, "calib_min_neck_deg": 0.0,
-            "calib_max_trunk_deg": 20.0, "calib_min_trunk_deg": -20.0, "calib_still_deg": 5.0,
+            "calib_max_trunk_deg": 10.0, "calib_min_trunk_deg": -20.0, "calib_still_deg": 5.0,
             "calib_front_ratio": 0.5}
 RANGES = {"calib_visible_ratio": (0.1, 1.0), "calib_max_neck_deg": (5.0, 90.0), "calib_min_neck_deg": (-45.0, 30.0),
           "calib_max_trunk_deg": (5.0, 60.0), "calib_min_trunk_deg": (-60.0, 0.0), "calib_still_deg": (0.5, 30.0),

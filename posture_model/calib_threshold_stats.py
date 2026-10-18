@@ -5,7 +5,7 @@ frames_labeled.csv đã TRỪ baseline nên không cho góc thô tuyệt đối.
 (api_handover/sample_data/p01_events.jsonl; lần chạy của chủ dự án 18/10: neck 26,8, trunk 0,9).
 """
 import csv, numpy as np
-rows=list(csv.DictReader(open("frames_labeled.csv",encoding="utf-8")))
+rows=list(csv.DictReader(open(__import__("os").path.join(__import__("os").path.dirname(__import__("os").path.abspath(__file__)),"frames_labeled.csv"),encoding="utf-8")))
 def f(k): return np.array([float(r[k]) if r[k]!="" else np.nan for r in rows])
 neck,trunk,lab=f("neck"),f("trunk"),f("label")
 vis=np.minimum(np.minimum(f("vis_ear"),f("vis_shoulder")),f("vis_hip"))
