@@ -117,6 +117,7 @@ class AppController(QObject):
         self.window.loginClicked.connect(self.go_login)
         self.window.recalibrateRequested.connect(self.request_recalibrate)
         self.window.skipFrontRequested.connect(self.request_skip_front)
+        self.window.setupRequested.connect(self.configure_devices)
         self.window.login.loginRequested.connect(self._on_login_submit)
         self.window.login.localRequested.connect(self._on_local)
         self.camera.closed.connect(self._camera_closed)
@@ -146,6 +147,33 @@ class AppController(QObject):
         self.window.showNormal()
         self.window.raise_()
         self.window.activateWindow()
+
+    def configure_devices(self):
+        # Đợi engine trả camera trước khi xem ảnh kiểm tra; giữ phiên và outbox hiện có.
+        if self._leaving or any(t.isRunning() for t in self._tasks):
+            return
+        mode = self.mode
+        self.window.btn_setup.setEnabled(False)
+
+        def configure():
+            from ui.setup_view import SetupDialog
+            self.camera.hide()
+            dialog = SetupDialog(self.opts.side, self.opts.front, self.base_url, self.window,
+                                 server_editable=mode != "session")
+            if dialog.exec() == SetupDialog.Accepted:
+                side, front, server = dialog.result_values
+                self.opts = dataclasses.replace(self.opts, side=side, front=front,
+                                                side_video=None, front_video=None)
+                self.cfg.values["api_base_url"] = server
+            self._leaving = False
+            self.window.btn_setup.setEnabled(True)
+            if mode == "session":
+                self._start_session(self.auth, self.remember)
+            elif mode == "local":
+                self._on_local()
+            else:
+                self.window.login.set_server(self.base_url)
+        self._stop_engine(configure)
 
     def quit(self):
         self.app.quit()

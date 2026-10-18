@@ -5,6 +5,17 @@ Tiến độ ghi ở `DoAnTotNghiep_BE/.codex/skills/kltn-project/SKILL.md`. Kh�
 
 ## Chạy
 
+Người dùng: nhấp đúp **`MoUngDung.vbs`** ở gốc repo (dùng venv local), hoặc mở
+**`posture_model/dist/PostureMonitor/PostureMonitor.exe`** sau khi đóng gói; giữ nguyên cả thư mục portable.
+Không cần nhập tham số mỗi lần. Lần đầu app hiện **Thiết lập camera / máy chủ**: chọn số webcam,
+bấm **Kiểm tra hình**, lưu; app nhớ bằng QSettings của tài khoản Windows. Camera trước `-1` là tắt.
+Đổi camera bằng nút thiết lập ngay trong app; đổi máy chủ cần đăng xuất trước.
+Ảnh kiểm tra là ảnh tĩnh, không lưu/gửi; không tự nhận diện camera nào đặt hông.
+
+Kế hoạch và tiêu chí nghiệm thu còn lại: [desktop-next-steps.md](desktop-next-steps.md).
+
+Lệnh dưới đây dành cho phát triển/ghi đè lựa chọn đã nhớ:
+
 ```powershell
 python -m venv .venv                       # trong thư mục KLTN_modelPosture; không cài vào Python toàn máy
 .venv\Scripts\python -m pip install -r posture_model/requirements.txt
@@ -18,6 +29,24 @@ hẹp thì xếp dọc, co lại khi đổi kích thước (`layout_rects`, `Fit
 (camera hông mất bên trái, camera laptop mất bên phải). Test: `python posture_model/tests/test_camera_view.py` (hình hiển thị chứa đủ 4 góc của khung gốc ở nhiều cỡ cửa sổ).
 Đóng cửa sổ = thu xuống khay; menu khay: **Mở**, **Hiệu chỉnh lại**, **Thoát**. Chọn camera tạm bằng `--side`, `--front`
 (`--side-video`, `--front-video` để chạy thử trên video). Ngưỡng cảnh báo chỉ sửa trên web, app chỉ nhận và hiển thị.
+
+### Build portable cho Windows
+
+Trong venv dự án có đủ `requirements.txt`, cài công cụ build `pyinstaller==6.22.3`, rồi chạy `posture_model/build_exe.bat`.
+Script đóng gói `app.py` bằng `--windowed`, gồm model, schema, Qt UI/font/icon và backend Windows keyring.
+Không đưa cấu hình local có token hoặc dữ liệu runtime vào gói. Bản portable chưa có installer/updater.
+PyInstaller 6.22.3 đã đối chiếu metadata PyPI ngày 18/10/2026 (Python >=3.8,<3.16, hỗ trợ Python 3.11;
+GPLv2-or-later với ngoại lệ phân phối ứng dụng); đây là dependency build, không phải runtime mới của app.
+Nguồn: https://pypi.org/pypi/pyinstaller/6.22.3/json, https://pyinstaller.org/en/stable/usage.html;
+QSettings dùng API Qt có sẵn: https://doc.qt.io/qtforpython-6/PySide6/QtCore/QSettings.html.
+
+Kiểm 18/10/2026: build portable thành công (~433 MiB), mở `.exe` hiện màn **Thiết lập Posture Monitor**
+trên Windows, tiến trình phản hồi; đã tạo shortcut Desktop trên máy phát triển. Không kèm cấu hình/token/outbox/log.
+`test_setup.py` đạt (validate/lưu lựa chọn/preview nền/giải phóng camera/đổi camera/hủy), login 9/9,
+engine 4/4, calibration 16/16 đạt. Qt E2E bằng video/landmark giả: CALIBRATING→GOOD→BAD→GOOD,
+nhịp UI tối đa 47 ms. Tokens/labels được đối chiếu trực tiếp với repo `FE/KLTN_dashboard`, đạt.
+Chưa nghiệm thu webcam thật, thay camera trong phiên gửi telemetry thật, inference từ `.exe`,
+hoặc máy Windows chưa cài Python. Kết quả mở màn setup không thay cho các phép kiểm này.
 
 ## Đăng nhập (giai đoạn 3)
 

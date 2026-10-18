@@ -23,6 +23,7 @@ class MainWindow(QMainWindow):
     loginClicked = Signal()                      # link "Đăng nhập" ở chế độ không đăng nhập
     recalibrateRequested = Signal()
     skipFrontRequested = Signal()
+    setupRequested = Signal()
 
     PAGE_LOGIN, PAGE_STATUS = 0, 1
 
@@ -37,6 +38,10 @@ class MainWindow(QMainWindow):
         outer.setContentsMargins(16, 16, 16, 16)
         self.stack = QStackedWidget()
         outer.addWidget(self.stack)
+        self.btn_setup = QPushButton("Thiết lập camera / máy chủ")
+        self.btn_setup.setObjectName("link")
+        self.btn_setup.clicked.connect(self.setupRequested)
+        outer.addWidget(self.btn_setup)
 
         self.login = LoginView()
         self.stack.addWidget(self.login)
