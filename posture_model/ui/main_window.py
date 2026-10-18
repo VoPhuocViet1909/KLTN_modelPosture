@@ -5,6 +5,7 @@ from PySide6.QtWidgets import (QFrame, QGridLayout, QHBoxLayout, QLabel, QMainWi
                                QVBoxLayout, QWidget)
 
 from ui import icons
+from ui.calibration_view import CalibrationView
 from ui.login_view import LoginView
 from ui.tokens import color
 from ui.widgets import Banner, ConnectionDot, PlumbLine, StateBadge, tabular
@@ -20,6 +21,8 @@ def fmt_duration(sec):
 class MainWindow(QMainWindow):
     cameraRequested = Signal()
     loginClicked = Signal()                      # link "Đăng nhập" ở chế độ không đăng nhập
+    recalibrateRequested = Signal()
+    skipFrontRequested = Signal()
 
     PAGE_LOGIN, PAGE_STATUS = 0, 1
 
@@ -52,8 +55,16 @@ class MainWindow(QMainWindow):
 
         panel = QFrame()
         panel.setObjectName("panel")
-        pl = QVBoxLayout(panel)
-        pl.setContentsMargins(24, 20, 24, 20)
+        outer_pl = QVBoxLayout(panel)
+        outer_pl.setContentsMargins(24, 20, 24, 20)
+        self.panel_stack = QStackedWidget()
+        outer_pl.addWidget(self.panel_stack)
+        self.calib_view = CalibrationView()
+        self.calib_view.recalibrateRequested.connect(self.recalibrateRequested)
+        self.calib_view.skipFrontRequested.connect(self.skipFrontRequested)
+        run_page = QWidget()
+        pl = QVBoxLayout(run_page)
+        pl.setContentsMargins(0, 0, 0, 0)
         pl.setSpacing(8)
         self.plumb = PlumbLine(190)
         pl.addWidget(self.plumb, 0, Qt.AlignHCenter)
@@ -65,6 +76,11 @@ class MainWindow(QMainWindow):
         self.hint.setWordWrap(True)
         self.hint.setMinimumHeight(34)
         pl.addWidget(self.hint)
+        self.btn_recal = QPushButton("Hiệu chỉnh lại")
+        self.btn_recal.setObjectName("link")
+        self.btn_recal.setToolTip("Ngồi thẳng và đo lại tư thế chuẩn")
+        self.btn_recal.clicked.connect(self.recalibrateRequested)
+        pl.addWidget(self.btn_recal, 0, Qt.AlignHCenter)
         pl.addStretch(1)
 
         stats = QGridLayout()
@@ -87,6 +103,8 @@ class MainWindow(QMainWindow):
         stats.setColumnStretch(0, 5)
         stats.setColumnStretch(1, 4)
         pl.addLayout(stats)
+        self.panel_stack.addWidget(run_page)           # 0: đang theo dõi
+        self.panel_stack.addWidget(self.calib_view)    # 1: hiệu chỉnh
         outer.addWidget(panel, 1)
 
         bottom = QHBoxLayout()
@@ -139,17 +157,27 @@ class MainWindow(QMainWindow):
         st = s.get("state", "OFFLINE")
         self.plumb.set_state(st if st in ("GOOD", "BAD", "AWAY", "OFFLINE") else None)
         self.badge.set_state(st)
-        if st == "CALIBRATING":
-            self.hint.setText(f"Ngồi thẳng, nhìn màn hình. Còn {int(round(s.get('calibLeft', 0)))} giây.")
-        elif st == "AWAY":
+        calibrating = st == "CALIBRATING"
+        self.panel_stack.setCurrentIndex(1 if calibrating else 0)
+        if calibrating:
+            self.calib_view.update_view(s.get("calib"), s.get("calibLeft", 0), self._calib_seconds(s))
+        skipped = bool(s.get("frontSkipped"))
+        if st == "AWAY":
             self.hint.setText("Không thấy bạn trước camera.")
         elif st == "OFFLINE":
             self.hint.setText("Camera chưa hoạt động.")
+        elif skipped:
+            self.hint.setText("Đang chạy không đo lệch vai và khoảng cách (đã bỏ qua camera laptop).")
         else:
             self.hint.setText("")
+        self.btn_recal.setVisible(st in ("GOOD", "BAD", "AWAY"))
         self.sit.setText(fmt_duration(s.get("sittingSec", 0)) if st not in ("OFFLINE",) else "00:00")
         d = s.get("distanceCm")
         self.dist.setText("Chưa đo" if d is None or st in ("OFFLINE", "CALIBRATING") else f"{d:.0f} cm")
+
+    @staticmethod
+    def _calib_seconds(s):
+        return (s.get("calib") or {}).get("seconds") or s.get("calibLeft") or 10
 
     def set_sync(self, info):
         self.conn.set_info(info)

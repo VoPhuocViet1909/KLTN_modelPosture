@@ -115,6 +115,8 @@ class AppController(QObject):
         self.notifier.notice.connect(self._on_notice)
         self.window.cameraRequested.connect(self.open_camera)
         self.window.loginClicked.connect(self.go_login)
+        self.window.recalibrateRequested.connect(self.request_recalibrate)
+        self.window.skipFrontRequested.connect(self.request_skip_front)
         self.window.login.loginRequested.connect(self._on_login_submit)
         self.window.login.localRequested.connect(self._on_local)
         self.camera.closed.connect(self._camera_closed)
@@ -373,6 +375,10 @@ class AppController(QObject):
     def request_recalibrate(self):
         if self.engine is not None and self.mode != "login":
             self.engine.request_recalibrate()
+
+    def request_skip_front(self):
+        if self.engine is not None and self.mode != "login":
+            self.engine.request_skip_front()
 
     # ---------------------------------------------------------------- camera
     def open_camera(self):

@@ -27,6 +27,7 @@ from api_session import AuthError, NoRedirect
 
 URGENT = {"ALERT_STARTED", "ALERT_REPEATED", "ALERT_RESOLVED", "USER_AWAY", "USER_BACK"}
 LOCAL_ONLY_KEYS = ("notify",)          # khoá chỉ dùng trong app, không gửi lên server
+LOCAL_ONLY_EVENTS = {"CALIBRATION_FAILED"}   # sự kiện chỉ ghi ở máy (events.jsonl), không thuộc 10 loại của ingestion
 
 
 def _now_iso():
@@ -56,6 +57,8 @@ class Sender(threading.Thread):
 
     # ------------------------------------------------------------------ gọi từ vòng lặp camera
     def enqueue_event(self, ev):
+        if ev.get("eventType") in LOCAL_ONLY_EVENTS:
+            return
         ev = {k: v for k, v in ev.items() if k not in LOCAL_ONLY_KEYS}
         urgent = ev.get("eventType") in URGENT
         self.q.put(("event", ev["eventId"], ev, urgent))
