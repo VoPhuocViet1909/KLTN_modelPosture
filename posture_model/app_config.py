@@ -32,7 +32,7 @@ DEFAULTS = {
     "camera_hfov_deg": 63,
     # --- có mặt / nhắc nghỉ
     "away_sec": 30,
-    "sit_limit_min": 50,
+    "sit_limit_min": 30,
     "sit_repeat_min": 10,
     "eye_break_min": 20,
     # --- thông báo

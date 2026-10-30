@@ -45,7 +45,7 @@ Phím `q` để thoát, `c` để hiệu chỉnh lại. Khi hiệu chỉnh, ng�
 | `calib_distance_cm` | null | Nếu lúc hiệu chỉnh ngồi đúng một khoảng cách đã đo bằng thước (ví dụ 60), app tính tiêu cự chính xác |
 | `camera_focal_px` | null | Tiêu cự lấy từ `distance_check.py` (phím `f`) |
 | `away_sec` | 30 | Mất người bao lâu thì coi là vắng mặt |
-| `sit_limit_min` / `sit_repeat_min` | 50 / 10 | Nhắc đứng dậy |
+| `sit_limit_min` / `sit_repeat_min` | 30 / 10 | Nhắc đứng dậy |
 | `eye_break_min` | 20 | Nhắc nghỉ mắt 20-20-20 |
 | `notify_toast` / `notify_sound` / `notify_popup` | true | Bật / tắt từng kiểu thông báo |
 | `p_bad_threshold`, `shoulder_tilt_on/off` | null | null = lấy từ `posture_config.json` |
