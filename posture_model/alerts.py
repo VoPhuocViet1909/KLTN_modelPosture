@@ -136,15 +136,20 @@ class PresenceTracker:
         return events
 
 
+# Mốc phút ngồi để tăng mức nhắc SIT_TOO_LONG: < 60 LOW/1, 60–89 MEDIUM/2, >= 90 HIGH/3 [S9][S10].
+SIT_LEVEL_MIN = (60, 90)
+
+
 class Reminders:
     """
     Nhắc theo thời gian ngồi (không cần AI):
       SIT_TOO_LONG: ngồi liên tục >= sit_limit_min phút, sau đó nhắc lại mỗi sit_repeat_min phút.
+                    Mức tăng theo số phút đã ngồi (SIT_LEVEL_MIN): < 60 LOW/1, 60–89 MEDIUM/2, >= 90 HIGH/3.
       EYE_BREAK   : mỗi eye_break_min phút ngồi -> nhắc nhìn xa 20 giây.
     Rời ghế (USER_AWAY) thì cả hai đồng hồ đặt lại.
     """
 
-    def __init__(self, sit_limit_min=50, sit_repeat_min=10, eye_break_min=20):
+    def __init__(self, sit_limit_min=30, sit_repeat_min=10, eye_break_min=20):
         self.sit_limit_min, self.sit_repeat_min, self.eye_break_min = sit_limit_min, sit_repeat_min, eye_break_min
         self.sit_start = None
         self.next_sit = None
@@ -175,8 +180,9 @@ class Reminders:
             return events
         if self.next_sit is not None and now >= self.next_sit:
             mins = (now - self.sit_start) / 60
+            level = 1 + sum(mins >= m for m in SIT_LEVEL_MIN)
             events.append(dict(eventType="REMINDER", alertType="SIT_TOO_LONG", t=now, sittingMin=round(mins, 1),
-                               severity="MEDIUM", level=2, notify=True))
+                               severity=("LOW", "MEDIUM", "HIGH")[level - 1], level=level, notify=True))
             self.next_sit = now + max(self.sit_repeat_min, 1) * 60
         if self.next_eye is not None and now >= self.next_eye:
             events.append(dict(eventType="REMINDER", alertType="EYE_BREAK", t=now, severity="LOW", level=1, notify=True))
