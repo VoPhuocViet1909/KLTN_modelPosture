@@ -154,10 +154,15 @@ của đúng phiên. Baseline thô lấy từ hai nguồn có thật:
 | `realtime_app.py` | CLI cũ chạy bằng lõi mới (`--login`, `--sync-config`, `--no-gui`… giữ nguyên). |
 | `app.py`, `ui/controller.py` | Điểm vào Qt; engine chạy trong `QThread`, nói chuyện với giao diện bằng signal (`ui/bridge.py`). |
 | `ui/design_tokens.json`, `ui/theme.qss` | Màu, trạng thái, bo góc, cỡ chữ chép từ `GIT_frontend/src/index.css` + design-system (ghi nguồn trong file). `theme.qss` sinh bằng `python ui/build_theme.py`. |
-| `ui/labels.json` | Tên trạng thái/cảnh báo khớp `GIT_frontend/src/lib/labels.ts`; lời nhắc theo bảng 3.5 kế hoạch ngôn ngữ. `notifier.py` đọc file này. |
+| `ui/labels.json` | Tên trạng thái/cảnh báo khớp `GIT_frontend/src/lib/labels.ts`; lời nhắc theo bảng 3.5 kế hoạch ngôn ngữ: `message` = câu mức 1, `messages` {"1","2","3"} = câu theo mức. `notifier.py` đọc file này, chọn câu theo `level` của sự kiện (thiếu mức thì lùi về mức thấp hơn). |
 | `credentials.py`, `login_service.py`, `ui/login_view.py` | Kho khóa (keyring), logic đăng nhập/mở lại phiên/đăng xuất + thông báo lỗi tiếng Việt, màn đăng nhập. `api_session.py` được mở rộng tương thích: `AuthError.kind`, `ApiSession.resume/logout/lost`, callback khi token xoay vòng. |
 | `calibration.py`, `ui/calibration_view.py` | Kiểm hợp lệ hiệu chỉnh (ngưỡng `calib_*`) và màn hiệu chỉnh. |
 | `ui/fonts/`, `ui/icons/` | Be Vietnam Pro (OFL, Google Fonts) và icon Lucide (ISC) dạng SVG. |
+
+## Lời nhắc theo mức và nhắc ngồi lâu
+
+- Mỗi `alertType` trong `ui/labels.json` có `messages` cho mức 1/2/3; `format_message` (dùng chung cho toast, banner, popup và `ui/bridge.py`) chọn theo `ev["level"]`. Nội dung theo `TaiLieu/KeHoach_LLM_TuVanSucKhoe.md` mục 1.
+- `SIT_TOO_LONG` (`alerts.py`, `Reminders`): nhắc lần đầu ở `sit_limit_min` (mặc định **30** phút), sau đó mỗi `sit_repeat_min`. Mức theo số phút đã ngồi (hằng số `SIT_LEVEL_MIN = (60, 90)`): dưới 60 phút = LOW/1 (toast), 60–89 phút = MEDIUM/2 (toast + bíp), từ 90 phút = HIGH/3 (thêm popup). Không có khóa cấu hình mới, schema không đổi.
 
 ## Kiểm thử
 
