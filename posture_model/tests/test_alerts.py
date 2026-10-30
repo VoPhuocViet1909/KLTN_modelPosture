@@ -97,6 +97,24 @@ def test_reminders():
     assert types.count("SIT_TOO_LONG") == 3                  # phút 50, 60, 70
 
 
+def test_reminders_default_limit_is_30():
+    assert Reminders().sit_limit_min == 30
+    assert __import__("app_config").DEFAULTS["sit_limit_min"] == 30
+
+
+def test_sit_too_long_level_rises_with_minutes():
+    r = Reminders(sit_limit_min=30, sit_repeat_min=10, eye_break_min=0)
+    r.start(0)
+    sit = []
+    for m in range(0, 101):
+        sit += [(m, e) for e in r.update(m * 60.0) if e["alertType"] == "SIT_TOO_LONG"]
+    got = {m: (e["severity"], e["level"]) for m, e in sit}
+    assert [m for m, _ in sit] == [30, 40, 50, 60, 70, 80, 90, 100]      # lần đầu ở sit_limit_min, sau đó mỗi sit_repeat_min
+    assert got[30] == got[50] == ("LOW", 1)
+    assert got[60] == got[80] == ("MEDIUM", 2)
+    assert got[90] == got[100] == ("HIGH", 3)
+
+
 def test_eventlog_schema_and_config_reload():
     d = tempfile.mkdtemp()
     log = EventLog(os.path.join(d, "ev.jsonl"), "v3", wall_t0=1_790_000_000.0)
