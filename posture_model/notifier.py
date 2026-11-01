@@ -55,8 +55,9 @@ class NotifierBase:
 class Notifier(NotifierBase):
     BANNER_SEC = 6
 
-    def __init__(self, cfg):
+    def __init__(self, cfg, iot=None):
         self.cfg = cfg
+        self.iot = iot                  # IotNotifier: thiết bị ESP32 đang kêu thì máy tính không bíp nữa
         self.banner = None              # (hết hạn lúc, tiêu đề, nội dung, mức)
         self._popup_open = False
         self._is_win = os.name == "nt"
@@ -76,7 +77,7 @@ class Notifier(NotifierBase):
         print(f"[{time.strftime('%H:%M:%S')}] {sev}: {title} – {body}")
         if self.cfg["notify_toast"]:
             self._run(self._show_toast, title, body)
-        if sev in ("MEDIUM", "HIGH") and self.cfg["notify_sound"]:
+        if sev in ("MEDIUM", "HIGH") and self.cfg["notify_sound"] and not (self.iot and self.iot.mutes_pc_beep):
             self._run(self._beep, sev)
         if sev == "HIGH" and self.cfg["notify_popup"] and not self._popup_open:
             self._popup_open = True
