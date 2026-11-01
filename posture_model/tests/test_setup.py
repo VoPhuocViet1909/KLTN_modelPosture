@@ -9,6 +9,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import numpy as np
 from PySide6.QtCore import QSettings, QTimer
 from PySide6.QtWidgets import QApplication
+import iot_config
 import ui.setup_view as setup
 
 
@@ -46,6 +47,7 @@ def main():
     assert all(c.closed for c in opened)
     with tempfile.TemporaryDirectory() as tmp:
         setup.preferences = lambda: QSettings(os.path.join(tmp, "settings.ini"), QSettings.IniFormat)
+        iot_config.PATH = os.path.join(tmp, "iot_config.json")      # không ghi đè cấu hình IoT thật
         dialog = setup.SetupDialog("1", "0", "http://localhost:8080")
         dialog.side.setCurrentText("0")
         dialog.save()

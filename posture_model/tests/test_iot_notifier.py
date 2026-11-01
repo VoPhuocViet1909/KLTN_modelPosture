@@ -453,3 +453,78 @@ def test_engine_runs_normally_when_device_is_off(tmp_path):
     assert _run_engine(str(tmp_path), iot) == "video_end"
     assert time.time() - t0 < 60
     assert not iot.connected
+
+
+# ---------------------------------------------------------------- giao diện thiết lập (Qt offscreen)
+def _dialog(tmp_path, monkeypatch, iot=None):
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtCore import QSettings
+    from PySide6.QtWidgets import QApplication
+    import ui.setup_view as setup
+    QApplication.instance() or QApplication([])
+    monkeypatch.setattr(iot_config, "PATH", str(tmp_path / "iot_config.json"))
+    monkeypatch.setattr(setup, "preferences", lambda: QSettings(str(tmp_path / "s.ini"), QSettings.IniFormat))
+    d = setup.SetupDialog("1", "0", "http://localhost:8080", iot=iot)
+    d.front.setCurrentText("-1")
+    return d
+
+
+def _pump(pred, timeout=5.0):
+    from PySide6.QtWidgets import QApplication
+    end = time.time() + timeout
+    while time.time() < end and not pred():
+        QApplication.processEvents()
+        time.sleep(0.01)
+    return pred()
+
+
+def test_setup_dialog_saves_iot_config_and_applies_live(tmp_path, monkeypatch):
+    dev = FakeDevice()
+    iot = IotNotifier(dict(enabled=False), latency_path=None)
+    d = _dialog(tmp_path, monkeypatch, iot)
+    assert d.iot_enabled.isChecked() is False and d.iot_url.text() == "http://192.168.1.20"
+    assert d.iot_key.echoMode().name == "Password"
+    d.iot_enabled.setChecked(True)
+    d.iot_url.setText(dev.url.replace("http://", ""))                 # thiếu http:// vẫn nhận
+    d.iot_key.setText("abc")
+    d.iot_mute.setChecked(False)
+    d.save()
+    try:
+        assert d.result_values is not None
+        saved = iot_config.load()
+        assert saved["enabled"] and saved["url"] == dev.url and saved["key"] == "abc" and saved["mute_pc_beep"] is False
+        assert iot.enabled and iot.cfg["url"] == dev.url             # áp dụng ngay, không cần khởi động lại
+    finally:
+        iot.apply(dict(enabled=False))
+        dev.close()
+
+
+def test_setup_dialog_rejects_bad_iot_url(tmp_path, monkeypatch):
+    d = _dialog(tmp_path, monkeypatch)
+    d.iot_url.setText("ftp://thiet-bi")
+    d.save()
+    assert d.result_values is None and "http://192.168.1.20" in d.error.text()
+    assert not (tmp_path / "iot_config.json").exists()
+
+
+def test_setup_dialog_test_button_plays_test_and_shows_status(tmp_path, monkeypatch):
+    dev = FakeDevice()
+    d = _dialog(tmp_path, monkeypatch)
+    d.iot_url.setText(dev.url)
+    d.iot_test.click()
+    try:
+        assert not d.iot_test.isEnabled() or d.iot_task is not None
+        assert _pump(lambda: "Đã gửi âm thử" in d.iot_dot.text.text())
+        assert "v1.1.1 · -55 dBm" in d.iot_dot.text.text()
+        assert ("GET", "/alert?type=TEST") in [(r[0], r[1]) for r in dev.requests]
+        assert _pump(lambda: d.iot_test.isEnabled())
+    finally:
+        dev.close()
+
+
+def test_setup_dialog_test_button_offline_shows_text_not_popup(tmp_path, monkeypatch):
+    d = _dialog(tmp_path, monkeypatch)
+    d.iot_url.setText(closed_url())
+    d.iot_test.click()
+    assert _pump(lambda: "Không kết nối được" in d.iot_dot.text.text())
+    assert _pump(lambda: d.iot_test.isEnabled())

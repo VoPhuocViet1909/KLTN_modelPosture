@@ -66,7 +66,8 @@ def clean(raw):
     return cfg
 
 
-def load(path=PATH):
+def load(path=None):
+    path = path or PATH
     try:
         with open(path, encoding="utf-8") as f:
             return clean(json.load(f))
@@ -74,8 +75,9 @@ def load(path=PATH):
         return clean(None)
 
 
-def save(cfg, path=PATH):
+def save(cfg, path=None):
     """Ghi cấu hình (đã làm sạch). True nếu ghi được."""
+    path = path or PATH
     tmp = path + ".tmp"
     try:
         with open(tmp, "w", encoding="utf-8") as f:

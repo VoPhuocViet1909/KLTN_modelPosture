@@ -307,3 +307,16 @@ class IotNotifier:
         with self._lock:
             n = self._alerts_today if self._day == datetime.fromtimestamp(self._clock()).date() else 0
         return dict(state=state, sittingMin=sitting_min, alertsToday=n)
+
+
+def probe(url, key="", timeout=2.0, test=False):
+    """Kiểm tra thiết bị một lần (giao diện gọi trong luồng nền): GET /ping, tùy chọn phát âm thử trước.
+    Trả về dict(ok, tested, error, info). error = "" | "BAD_KEY" | "UNREACHABLE". Không ném lỗi."""
+    tested = False
+    if test:
+        status, _, _ = call(url, key, "GET", "/alert?type=TEST", timeout=timeout)
+        tested = status == 200
+    status, data, _ = call(url, key, "GET", "/ping", timeout=timeout)
+    if status == 200:
+        return dict(ok=True, tested=tested, error="", info=data)
+    return dict(ok=False, tested=False, error="BAD_KEY" if status == 401 else "UNREACHABLE", info={})
