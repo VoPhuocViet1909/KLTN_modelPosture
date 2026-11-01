@@ -1,0 +1,3 @@
+# Preserve the supplied originals byte-for-byte across Windows checkouts.
+notebook_v3_1cam90_kaggle.ipynb -text
+posture_model_pipeline_mediapipe_rula.md -text
