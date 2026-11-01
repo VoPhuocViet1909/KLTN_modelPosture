@@ -159,11 +159,53 @@ của đúng phiên. Baseline thô lấy từ hai nguồn có thật:
 | `calibration.py`, `ui/calibration_view.py` | Kiểm hợp lệ hiệu chỉnh (ngưỡng `calib_*`) và màn hiệu chỉnh. |
 | `ui/fonts/`, `ui/icons/` | Be Vietnam Pro (OFL, Google Fonts) và icon Lucide (ISC) dạng SVG. |
 
+## Thiết bị IoT (ESP32-S3, 01/11/2026)
+
+Desktop App gửi cảnh báo xuống thiết bị ESP32-S3 (loa, màn hình, đèn) qua HTTP trong mạng LAN. Luật "ngồi sai bao lâu thì báo"
+vẫn ở `AlertTracker`/`Reminders`; thiết bị chỉ hiển thị và phát âm. Hợp đồng API thiết bị (`GET /ping`, `POST /alert`, `/status`, `/config`,
+header `X-Device-Key`) là cố định, xem `TaiLieu/KeHoach_IoT_ThongBao.md` mục 2. Chỉ dùng thư viện chuẩn (`urllib`, `threading`, `queue`).
+
+**Cấu hình.** File riêng `posture_model/iot_config.json` (chỉ ở máy, **không commit** vì có khóa; mẫu: `iot_config.example.json`). Không nằm trong
+`app_config.json` nên không đổi `config.schema.json`. Sửa tay hoặc trong màn Thiết lập (mục "Thiết bị IoT"), có hiệu lực ngay, không cần khởi động lại.
+
+| Khóa | Mặc định | Ý nghĩa |
+| --- | --- | --- |
+| `enabled` | `false` | Bật gửi xuống thiết bị |
+| `url` | `http://192.168.1.20` | Địa chỉ thiết bị. Tên mDNS `posture-esp32.local` thường không phân giải trên Windows nên mặc định dùng IP |
+| `key` | `""` | Gửi trong header `X-Device-Key`; để trống nếu thiết bị chưa đặt khóa |
+| `mute_pc_beep` | `true` | Tắt tiếng bíp trên máy tính khi thiết bị đang kết nối |
+| `timeout_sec` | `1.0` | Timeout mỗi request, không thử lại |
+| `heartbeat_sec` | `15` | Chu kỳ `GET /ping` (cập nhật chấm kết nối) |
+| `status_every_sec` | `60` | Gửi lại `POST /status` dù trạng thái không đổi |
+
+**Ánh xạ sự kiện → thiết bị** (`iot_notifier.IotNotifier`, gắn vào `EventLog.listeners` và `engine.py`):
+
+| Nguồn | Gửi |
+| --- | --- |
+| `ALERT_STARTED`, `ALERT_REPEATED`, `REMINDER` có `notify = true` | `POST /alert {eventType, alertType, level, sittingMin?, distanceCm?}` (`distanceCm` lấy từ `snapshot.distanceCm`) |
+| `ALERT_RESOLVED` | `POST /alert {eventType:"ALERT_RESOLVED", alertType}` |
+| `SESSION_END`, `IotNotifier.close()` | `POST /status {state:"OFFLINE", sittingMin:0, alertsToday}` |
+| `on_state` (engine, ~4 lần/giây) | `POST /status {state, sittingMin, alertsToday}` khi `state` đổi hoặc mỗi `status_every_sec` |
+| `notify_sound` đổi trong `on_config`, và khi thiết bị vừa kết nối (lại) | `POST /config {soundOn}` |
+
+`alertsToday` = số `ALERT_STARTED` + `REMINDER` có `notify` từ 0 giờ hôm nay (giờ máy), giữ trong RAM.
+
+**Không chặn app.** Mọi lời gọi chạy ở luồng nền `IotClient` (hàng đợi 20 lệnh, đầy thì bỏ lệnh cũ nhất; timeout 1 s, không thử lại; lệnh `/alert`
+nằm hàng đợi quá 3 giây thì bỏ). Hàm `on_event/on_state/on_config` chỉ xếp lệnh rồi trả về, không ném lỗi. Thiết bị tắt/mất mạng: app chạy bình thường, chấm
+trạng thái chuyển xám, không có hộp thoại lỗi. Mỗi request ghi một dòng vào `out/iot_latency.csv` (`ts,path,http,ms`). Request bỏ qua proxy hệ thống.
+
+**Tắt bíp trên máy.** Khi `iot.connected` (đã `GET /ping` được) và `mute_pc_beep`, `Notifier.__call__` (CLI) và `AppController._on_notice` (Qt)
+không bíp nữa; banner, toast, hộp thoại giữ nguyên.
+
+**Giao diện.** Màn Thiết lập có mục "Thiết bị IoT": công tắc bật, địa chỉ, khóa (ẩn ký tự), công tắc tắt bíp, nút **Thử** (`GET /alert?type=TEST`, kêu cả khi
+thiết bị đang tắt tiếng) và chấm trạng thái kèm "v1.1.1 · -55 dBm". CLI (`realtime_app.py`) tạo `IotNotifier` khi `iot_config.enabled`.
+
 ## Kiểm thử
 
 ```powershell
 python posture_model/tests/test_engine.py        # lõi: video trắng + landmark giả, GOOD→BAD→GOOD, stop/recalibrate
 python posture_model/tests/test_ui_assets.py     # tokens/labels khớp web, theme.qss mới, thước dọi
+python -m pytest posture_model/tests/test_iot_notifier.py   # gửi xuống ESP32 giả: ánh xạ, khóa, thiết bị tắt, hàng đợi, giao diện
 python posture_model/ui/e2e_check.py <thư mục>   # cả đường ống Qt tốc độ thực + ảnh chụp + đo độ đơ giao diện
 python posture_model/ui/screenshots.py <thư mục> # ảnh cửa sổ ở từng trạng thái
 ```
