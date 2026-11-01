@@ -24,7 +24,9 @@ import numpy as np
 
 from api_session import ApiSession, AuthError
 from engine import APP_DIR, EngineError, EngineOptions, PostureEngine, load_config
-from notifier import ascii_vi
+import iot_config
+from iot_notifier import IotNotifier
+from notifier import Notifier, ascii_vi
 from realtime_posture import hstack
 
 SEV_COL = {"LOW": (0, 200, 255), "MEDIUM": (0, 140, 255), "HIGH": (0, 0, 255)}
@@ -170,7 +172,13 @@ def main():
                          no_face=a.no_face, max_sec=a.max_sec, stream_camera=a.stream_camera,
                          stream_rtsp_base=a.stream_rtsp_base, ffmpeg=a.ffmpeg)
     viewer = None if a.no_gui else CvViewer(show_meta=not a.hide_meta)
-    engine = PostureEngine(opts, cfg=cfg, model_cfg=model_cfg, auth=auth, config_sync=config_sync, viewer=viewer)
+    iot = notifier = None
+    iot_cfg = iot_config.load()
+    if iot_cfg["enabled"]:                                # gửi cảnh báo xuống ESP32 (iot_config.json)
+        iot = IotNotifier(iot_cfg, app_cfg=cfg)
+        notifier = Notifier(cfg, iot)
+    engine = PostureEngine(opts, cfg=cfg, model_cfg=model_cfg, auth=auth, config_sync=config_sync, viewer=viewer,
+                           notifier=notifier, iot=iot)
     try:
         engine.run()
     except EngineError as e:

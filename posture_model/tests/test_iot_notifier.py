@@ -408,3 +408,48 @@ def test_config_save_roundtrip(tmp_path):
 def test_example_file_matches_defaults():
     with open(os.path.join(os.path.dirname(HERE), "iot_config.example.json"), encoding="utf-8") as f:
         assert json.load(f) == iot_config.DEFAULTS
+
+
+# ---------------------------------------------------------------- nối vào engine (video giả + landmark giả)
+def _run_engine(d, iot):
+    import engine as engine_mod
+    from engine import EngineListener, EngineOptions, PostureEngine
+    from fake_pose import FakePoseDetector, make_blank_video, write_config
+    from notifier import NotifierBase
+    engine_mod.PoseDetector = FakePoseDetector
+
+    class Quiet(NotifierBase):
+        def __call__(self, ev):
+            pass
+
+    video = os.path.join(d, "v.avi")
+    make_blank_video(video, 30)
+    opts = EngineOptions(side_video=video, front="-1", config=write_config(os.path.join(d, "cfg.json")),
+                         events=os.path.join(d, "ev.jsonl"), metrics_out=os.path.join(d, "m.jsonl"),
+                         outbox=os.path.join(d, "ob.db"))
+    return PostureEngine(opts, notifier=Quiet(), listener=EngineListener(), iot=iot).run()
+
+
+def test_engine_sends_alert_status_and_offline(tmp_path):
+    dev = FakeDevice()
+    iot = make(dev.url, tmp_path, app_cfg={"notify_sound": True})
+    try:
+        assert _run_engine(str(tmp_path), iot) == "video_end"
+        assert wait_for(lambda: not iot.client.running)
+        states = [r[2]["state"] for r in dev.posted("/status")]
+        collapsed = [s for i, s in enumerate(states) if i == 0 or s != states[i - 1]]
+        assert collapsed == ["CALIBRATING", "GOOD", "BAD", "GOOD", "OFFLINE"], states
+        alerts = [(r[2]["eventType"], r[2]["alertType"]) for r in dev.posted("/alert")]
+        assert alerts == [("ALERT_STARTED", "NECK_TRUNK"), ("ALERT_RESOLVED", "NECK_TRUNK")], alerts
+        assert dev.posted("/alert")[0][2]["level"] == 1
+        assert [r[2]["alertsToday"] for r in dev.posted("/status")][-1] == 1
+    finally:
+        dev.close()
+
+
+def test_engine_runs_normally_when_device_is_off(tmp_path):
+    iot = make(closed_url(), tmp_path)
+    t0 = time.time()
+    assert _run_engine(str(tmp_path), iot) == "video_end"
+    assert time.time() - t0 < 60
+    assert not iot.connected
