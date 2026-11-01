@@ -7,30 +7,56 @@
     "OFFLINE": {"label": "Không kết nối", "icon": "circle-off"},
     "CALIBRATING": {"label": "Đang hiệu chỉnh", "icon": "rotate-cw"}
   },
+  "_evidence": "Nguồn lời nhắc theo mức (TaiLieu/KeHoach_LLM_TuVanSucKhoe.md mục 1): NECK_TRUNK S6, S3, S7; TOO_CLOSE S1; EYE_BREAK S4, S5; SIT_TOO_LONG S10, S12, S9, S7, S11. messages[mức] chọn theo level của sự kiện, message = câu mức 1.",
   "alert": {
     "NECK_TRUNK": {
       "label": "Cúi cổ, gù lưng",
-      "message": "Bạn đang cúi hoặc gù lưng. Ngồi thẳng, kéo vai ra sau nhé.",
+      "message": "Bạn đang cúi đầu hoặc gù lưng. Ngồi thẳng, kéo vai ra sau nhé.",
+      "messages": {
+        "1": "Bạn đang cúi đầu hoặc gù lưng. Ngồi thẳng, kéo vai ra sau nhé.",
+        "2": "Cúi đầu càng sâu, cổ càng chịu nặng: khoảng 12 kg ở 15°, 18 kg ở 30°. Nâng màn hình ngang tầm mắt nhé.",
+        "3": "Bạn đã cúi/gù khá lâu. Thói quen này liên quan đến mỏi, đau cổ vai gáy. Đứng dậy duỗi cổ rồi chỉnh lại chỗ ngồi."
+      },
       "group": "posture", "icon": "triangle-alert"
     },
     "SHOULDER_TILT": {
       "label": "Lệch vai",
       "message": "Vai đang bị lệch. Cân lại hai vai, đặt hai tay đều lên bàn.",
+      "messages": {
+        "1": "Vai đang bị lệch. Cân lại hai vai, đặt hai tay đều lên bàn.",
+        "2": "Đặt màn hình chính giữa, tựa lưng đều hai bên ghế.",
+        "3": "Đặt màn hình chính giữa, tựa lưng đều hai bên ghế."
+      },
       "group": "posture", "icon": "triangle-alert"
     },
     "TOO_CLOSE": {
       "label": "Ngồi quá gần màn hình",
       "message": "Bạn đang cách màn hình {distanceCm} cm. Lùi ra ít nhất {limit} cm.",
+      "messages": {
+        "1": "Bạn đang cách màn hình {distanceCm} cm. Lùi ra ít nhất {limit} cm.",
+        "2": "Nhìn màn hình gần dưới 50 cm làm mắt dễ mỏi, khô hơn khoảng 4 lần. Lùi ra khoảng một cánh tay.",
+        "3": "Nhìn màn hình gần dưới 50 cm làm mắt dễ mỏi, khô hơn khoảng 4 lần. Lùi ra khoảng một cánh tay."
+      },
       "group": "posture", "icon": "triangle-alert"
     },
     "SIT_TOO_LONG": {
       "label": "Ngồi quá lâu",
-      "message": "Bạn đã ngồi liên tục {sittingMin:.0f} phút. Đứng dậy đi lại 2–3 phút nhé.",
+      "message": "Bạn đã ngồi liên tục {sittingMin:.0f} phút. Đứng dậy đi lại khoảng 2 phút nhé.",
+      "messages": {
+        "1": "Bạn đã ngồi liên tục {sittingMin:.0f} phút. Đứng dậy đi lại khoảng 2 phút nhé.",
+        "2": "Đã ngồi liền {sittingMin:.0f} phút. Ngồi yên lâu làm giảm lưu thông máu ở chân và làm mỏi cổ, lưng. Đi lại 3–5 phút.",
+        "3": "Đã ngồi liền {sittingMin:.0f} phút. Thường xuyên ngồi liền lâu như vậy liên quan đến nguy cơ bệnh tim mạch và chuyển hóa. Hãy đứng dậy ngay."
+      },
       "group": "rest", "icon": "coffee"
     },
     "EYE_BREAK": {
       "label": "Nghỉ mắt",
       "message": "Nhìn một vật cách xa khoảng 6 m trong 20 giây.",
+      "messages": {
+        "1": "Nhìn một vật cách xa khoảng 6 m trong 20 giây.",
+        "2": "Nghỉ mắt đều đặn mỗi 20 phút giúp giảm khô và mỏi mắt.",
+        "3": "Nghỉ mắt đều đặn mỗi 20 phút giúp giảm khô và mỏi mắt."
+      },
       "group": "rest", "icon": "eye"
     }
   },

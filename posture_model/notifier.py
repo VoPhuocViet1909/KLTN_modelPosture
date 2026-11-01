@@ -16,7 +16,22 @@ import unicodedata
 from ui.tokens import labels
 
 # Tên + lời nhắc lấy từ ui/labels.json (khớp ALERT_LABEL của web và bảng 3.5 KeHoach_NgonNguThietKe.md).
+# Lời nhắc theo mức (messages["1"|"2"|"3"]); thiếu thì lùi về mức thấp hơn, cuối cùng về "message".
 MESSAGES = {k: (v["label"], v["message"]) for k, v in labels()["alert"].items()}
+MESSAGES_BY_LEVEL = {k: v.get("messages", {}) for k, v in labels()["alert"].items()}
+
+
+def message_for_level(alert_type, level):
+    """Chọn câu theo level; thiếu mức thì lùi xuống mức thấp hơn, không có nữa thì dùng "message"."""
+    by_level = MESSAGES_BY_LEVEL.get(alert_type, {})
+    try:
+        level = int(level)
+    except (TypeError, ValueError):
+        level = 1
+    for lv in range(level, 0, -1):
+        if str(lv) in by_level:
+            return by_level[str(lv)]
+    return MESSAGES[alert_type][1]
 
 
 def ascii_vi(s):
@@ -27,6 +42,8 @@ def ascii_vi(s):
 
 def format_message(ev, cfg=None):
     title, body = MESSAGES.get(ev.get("alertType"), ("Cảnh báo", "Hãy điều chỉnh tư thế."))
+    if ev.get("alertType") in MESSAGES:
+        body = message_for_level(ev["alertType"], ev.get("level", 1))
     data = dict(ev)
     data.setdefault("distanceCm", (ev.get("snapshot") or {}).get("distanceCm", "?"))
     data.setdefault("sittingMin", 0)
