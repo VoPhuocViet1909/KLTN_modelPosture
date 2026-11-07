@@ -9,6 +9,34 @@ HERE = Path(__file__).resolve().parent
 
 
 class NotebookTests(unittest.TestCase):
+    def inventory_source(self):
+        nb = json.loads((HERE / 'kaggle_train_rf_v3.ipynb').read_text(encoding='utf-8'))
+        return next(''.join(c['source']) for c in nb['cells']
+                    if c['cell_type'] == 'code' and 'video_manifest.json' in ''.join(c['source'])
+                    and 'side_videos = ' in ''.join(c['source']))
+
+    def test_inventory_without_digest_or_imports(self):
+        import hashlib
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            data, run = root/'videos', root/'run'
+            data.mkdir()
+            run.mkdir()
+            (data/'P01_S01_GOOD_01.mp4').write_bytes(b'fixture; only hashing, no decode')
+            env = dict(MODE='video', DATA_DIR=str(data), RUN_DIR=run)
+            exec(compile(self.inventory_source(), 'inventory', 'exec'), env)
+            manifest = json.loads((run/'video_manifest.json').read_text())
+            self.assertEqual(len(manifest), 1)
+            self.assertEqual(manifest[0]['sha256'], hashlib.sha256(b'fixture; only hashing, no decode').hexdigest())
+            # NPZ mode must not require a dataset directory or run directory.
+            exec(compile(self.inventory_source(), 'inventory', 'exec'),
+                 dict(MODE='npz', DATASET_PATH=root/'old.npz'))
+
+    def test_inventory_missing_setup_has_actionable_error(self):
+        for env in ({}, {'MODE':'video'}, {'MODE':'video','DATA_DIR':'unused','RUN_DIR':'/not-a-real-run-dir'}):
+            with self.subTest(env=env), self.assertRaisesRegex(RuntimeError, 'Cấu hình'):
+                exec(compile(self.inventory_source(), 'inventory', 'exec'), env.copy())
+
     def test_notebook_compiles(self):
         nb = json.loads((HERE / 'kaggle_train_rf_v3.ipynb').read_text(encoding='utf-8'))
         self.assertEqual(nb['nbformat'], 4)

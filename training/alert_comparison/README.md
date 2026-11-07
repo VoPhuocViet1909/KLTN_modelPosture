@@ -108,6 +108,7 @@ ZIP không chứa video gốc, cache landmark hoặc model Transformer mới. Kh
 
 | Lỗi | Cách xử lý |
 | --- | --- |
+| `NameError: name 'digest' is not defined` ở ô kiểm kê (bản đầu) | Bản cập nhật cho ô kiểm kê tự định nghĩa hàm SHA-256 và import cần thiết. Với notebook đang mở, thêm hàm `digest` từ bản mới vào đầu ô kiểm kê rồi chạy lại ô đó. Nếu còn thiếu `MODE`/`DATA_DIR`/`RUN_DIR`, cần chạy ô cấu hình thành công; lỗi cũ có thể do bỏ qua ô, ô trước bị dừng hoặc restart session. Không cần chạy lại ô tạo run nếu các biến vẫn đầy đủ. |
 | Không tìm thấy ASSET_DIR/DATA_DIR | Xem cây Input và copy đường dẫn thật; dataset có thể nằm dưới nhiều cấp thư mục. |
 | Hash file tham chiếu khác | Upload lại đúng ba file từ app. Nếu chủ động đổi bản app, cần tái chuẩn bị notebook/hash và ghi rõ phiên bản; không sửa hash chỉ để bỏ lỗi. |
 | Không có video đúng tên | Kiểm thư mục con và tên `Pxx_Sxx_...`; giữ nguồn train như trước. |
