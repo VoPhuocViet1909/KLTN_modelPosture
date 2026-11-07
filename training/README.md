@@ -32,3 +32,7 @@ Nhập vào dự án ngày **01/11/2026** theo yêu cầu người thực hiện
 9. Kế hoạch mô tả app ban đầu, chưa bao quát khoảng cách, vòng đời camera/đăng nhập, outbox và chia sẻ media hiện nay. Không chép đè `posture_model` bằng code sinh từ notebook.
 
 Tài liệu báo cáo hiện hành ở `../../CuonBaoCao` (đường dẫn thực: `G:/KhoaLuanTotNghiep/CuonBaoCao`). Các điểm thiếu bằng chứng tiếp tục được ghi trong `CAC_VAN_DE_CAN_XAC_NHAN.md`.
+
+## Chuẩn bị RF trên Kaggle — 07/11/2026
+
+[Hướng dẫn setup và notebook](alert_comparison/README.md): dùng NPZ train cũ hoặc dựng lại video bằng pipeline v3, train riêng RF và xuất model/metadata/dataset. Giữ nguyên Transformer đang triển khai. Có kiểm số mẫu/nhãn và hash tham chiếu; chưa chạy Kaggle hoặc xác nhận dữ liệu dựng lại giống từng byte với lần train cũ. Bộ này chuẩn bị model cho phép so sánh cảnh báo trên người mới về sau, chưa thực hiện phép so sánh đó.
