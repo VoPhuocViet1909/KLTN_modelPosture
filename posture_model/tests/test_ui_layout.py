@@ -7,6 +7,7 @@ os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from PySide6.QtWidgets import QApplication
+from PySide6.QtCore import QCoreApplication, QEvent
 from ui.main_window import MainWindow
 from ui.setup_view import SetupDialog
 from ui.theme import apply_theme
@@ -58,6 +59,10 @@ def main():
         dialog.grab().save(str(output / 'desktop-setup.png'))
     dialog.reject()
     window.hide()
+    # Destroy widgets while QApplication is still alive, before Python teardown.
+    dialog.deleteLater()
+    window.deleteLater()
+    QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
     print('PASS: resizable window, scroll access, state values, human camera choice and duplicate validation')
 
 
