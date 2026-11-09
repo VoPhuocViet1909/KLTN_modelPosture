@@ -2,7 +2,7 @@
 
 Đọc tiến độ và quy tắc dự án tại repo backend:
 https://github.com/luongtan204/DoAnTotNghiep_BE/tree/main/.codex/skills
-Trong workspace này: `../BE/DoAnTotNghiep_BE/.codex/skills/{kltn-project,team-sync}/SKILL.md`.
+Trong workspace này: `../DoAnTotNghiep_BE/.codex/skills/{kltn-project,team-sync}/SKILL.md`.
 
 - Trước khi thiết kế/sửa giao diện: đọc `.agents/skills/design-system/SKILL.md` (KLTN-DS-1 dùng chung
   với web), sau đó tra `.agents/skills/ui-ux-pro-max/SKILL.md` theo vấn đề cụ thể.

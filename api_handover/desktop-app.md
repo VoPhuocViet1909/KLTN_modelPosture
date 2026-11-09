@@ -44,7 +44,7 @@ Kiểm 18/10/2026: build portable thành công (~433 MiB), mở `.exe` hiện m�
 trên Windows, tiến trình phản hồi; đã tạo shortcut Desktop trên máy phát triển. Không kèm cấu hình/token/outbox/log.
 `test_setup.py` đạt (validate/lưu lựa chọn/preview nền/giải phóng camera/đổi camera/hủy), login 9/9,
 engine 4/4, calibration 16/16 đạt. Qt E2E bằng video/landmark giả: CALIBRATING→GOOD→BAD→GOOD,
-nhịp UI tối đa 47 ms. Tokens/labels được đối chiếu trực tiếp với repo `FE/KLTN_dashboard`, đạt.
+nhịp UI tối đa 47 ms. Tokens/labels được đối chiếu trực tiếp với repo `KLTN_dashboard`, đạt.
 Chưa nghiệm thu webcam thật, thay camera trong phiên gửi telemetry thật, inference từ `.exe`,
 hoặc máy Windows chưa cài Python. Kết quả mở màn setup không thay cho các phép kiểm này.
 
