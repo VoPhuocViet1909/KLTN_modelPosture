@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kltn.local/schemas/posture-timing-v1.schema.json",
+  "title": "Optional posture timing v1",
+  "type": "object",
+  "properties": {
+    "postureKnownSec": {
+      "type": "number",
+      "minimum": 0
+    },
+    "postureGoodSec": {
+      "type": "number",
+      "minimum": 0
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "required": [
+          "postureKnownSec"
+        ]
+      },
+      "then": {
+        "required": [
+          "postureGoodSec"
+        ]
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "postureGoodSec"
+        ]
+      },
+      "then": {
+        "required": [
+          "postureKnownSec"
+        ]
+      }
+    }
+  ]
+}

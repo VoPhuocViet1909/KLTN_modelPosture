@@ -121,8 +121,12 @@ def main():
     assert len(requested) == before
     ctl.app.aboutToQuit.disconnect(ctl._shutdown)
     ctl.engine = None
-    ctl.window.hide()
-    window.hide()
+    ctl._shutdown()
+    from PySide6.QtCore import QCoreApplication, QEvent
+    for widget in (ctl.window, ctl.camera, ctl.tray, ctl.tray.menu, window):
+        widget.deleteLater()
+    ctl.deleteLater()
+    QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
     print("PASS: consent/default-off, switch/stop, rapid stop, unavailable front, auth, safe errors, Qt controls and FFmpeg cancel")
 
 

@@ -1,5 +1,9 @@
 # KLTN_modelPosture
 
+Nhánh `feat/software-expansion-m1`: thêm **Nghỉ và phản hồi**, hộp thư REST lưu riêng theo owner/server và timing tùy chọn (mặc định tắt). Đã kiểm local/mock/offscreen; chưa kiểm backend/webcam thật. Kế hoạch kiểm lại ở repo backend `docs/software-expansion-v1/RETEST-M1.md`.
+
+Để kiểm mã mới, chạy source `posture_model/app.py` bằng môi trường Python đã cài requirements. File exe có sẵn và `MoUngDung.vbs` ưu tiên exe có thể vẫn là bản cũ; chưa đóng gói lại trong đợt này.
+
 ## Desktop App
 
 Mở bằng nhấp đúp `MoUngDung.vbs`, hoặc `posture_model/dist/PostureMonitor/PostureMonitor.exe`

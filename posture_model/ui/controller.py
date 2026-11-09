@@ -9,6 +9,10 @@ import os
 import shutil
 import threading
 import time
+import json
+import urllib.parse
+import urllib.request
+from datetime import datetime, timezone, timedelta
 
 from PySide6.QtCore import QObject, Qt, QTimer, Slot
 from PySide6.QtWidgets import QApplication, QDialog, QFileDialog, QHBoxLayout, QLabel, QPushButton, QSystemTrayIcon, QVBoxLayout
@@ -100,6 +104,10 @@ class AppController(QObject):
         self._tasks = {}
         self._dialog = None
         self._engine_error = None
+        self._commands = None
+        self._command_busy = False
+        self._command_stop = threading.Event()
+        self._progress_dialog = None
 
         self.window = MainWindow()
         self.tray = TrayController()
@@ -114,6 +122,12 @@ class AppController(QObject):
         b.frame.connect(self.camera.show_frame)
         b.finished.connect(self._on_finished)
         b.error.connect(self._on_error)
+        b.alert.connect(self._remember_progress_episode)
+        self.window.progressRequested.connect(self.show_progress)
+        self._command_timer = QTimer(self)
+        self._command_timer.setInterval(15000)
+        self._command_timer.timeout.connect(self._sync_commands)
+        self._command_timer.start()
         self.notifier.notice.connect(self._on_notice)
         self.window.cameraRequested.connect(self.open_camera)
         self.window.loginClicked.connect(self.go_login)
@@ -183,6 +197,8 @@ class AppController(QObject):
 
     def _shutdown(self):
         self._leaving = True
+        self._command_timer.stop()
+        self._command_stop.set()
         self._clear_notices()
         self.camera.hide()
         if self.engine is not None:
@@ -193,6 +209,8 @@ class AppController(QObject):
         if self.auth is not None and not self.remember:     # không nhớ đăng nhập: thu hồi phiên khi thoát
             login_service.logout(self.auth, self.store)
         self.tray.hide()
+        for task in list(self._tasks):
+            task.wait(30000)
 
     def _track(self, task, on_done, on_failed):
         """Chạy task nền; kết quả trả về luồng giao diện qua slot của QObject (lambda nối trực tiếp sẽ chạy ở luồng nền)."""
@@ -224,6 +242,9 @@ class AppController(QObject):
     def _to_login(self, error=None, info=None):
         """Về màn đăng nhập. Engine đã dừng. Outbox vẫn giữ trên đĩa."""
         self._clear_notices()
+        self._command_stop.set()
+        if self._progress_dialog is not None:
+            self._progress_dialog.close()
         self.auth, self.remember, self.mode = None, False, "login"
         self.engine = self.thread = None
         self._leaving = False
@@ -290,6 +311,7 @@ class AppController(QObject):
 
     def _start_session(self, auth, remember):
         self.auth, self.remember = auth, remember
+        self._command_stop = threading.Event()
         config_sync = None
         try:
             from config_sync import ConfigSync       # bật config sync sau đăng nhập (như --sync-config)
@@ -420,6 +442,11 @@ class AppController(QObject):
         """Kênh theo mức: LOW banner + toast; MEDIUM + bíp; HIGH + hộp thoại (tôn trọng notify_* trong cấu hình)."""
         if self._leaving or self.mode == "login" or self._engine_error:
             return
+        if self.auth and alert_type in ('SIT_TOO_LONG', 'EYE_BREAK') and self._commands is not None:
+            for record in self._commands.resources(self.auth, 'break/'):
+                if record['deviceId'] == self.cfg['device_id'] and (record['state'] == 'IN_PROGRESS' or
+                        record['state'] == 'SNOOZED' and record.get('snoozeUntil') and datetime.fromisoformat(record['snoozeUntil']) > datetime.now(timezone.utc)):
+                    return
         self.window.show_notice(alert_type, title, body)
         if self.cfg["notify_toast"] and self.tray.isVisible():
             self.tray.showMessage(title, body, QSystemTrayIcon.NoIcon, 6000)
@@ -429,6 +456,78 @@ class AppController(QObject):
             self._dialog = AlertDialog(alert_type, title, body)
             self._dialog.destroyed.connect(lambda *_: setattr(self, "_dialog", None))
             self._dialog.show()
+
+    def _progress_queue(self):
+        if self._commands is None:
+            from command_outbox import CommandOutbox
+            self._commands = CommandOutbox(os.path.join(os.path.dirname(os.path.abspath(self.opts.outbox)), 'commands.db'))
+        return self._commands
+
+    @Slot(dict)
+    def _remember_progress_episode(self, event):
+        if self.auth and self.mode == 'session' and not self._leaving and str(event.get('userId')) == str(self.auth.user_id):
+            self._progress_queue().remember_episode(self.auth, event)
+
+    def _sync_commands(self):
+        if not self.auth or self._leaving or self.mode != 'session' or self._command_busy or self._commands is None:
+            return
+        auth, stop = self.auth, self._command_stop
+        self._command_busy = True
+
+        def finished(result):
+            self._command_busy = False
+            if self.auth is auth and self._progress_dialog is not None and self._progress_dialog.isVisible():
+                self._progress_dialog.refresh()
+
+        self._track(Task(lambda: self._commands.flush(auth, stop)), finished, finished)
+
+    def show_progress(self):
+        if not self.auth or self.mode != 'session':
+            self.window.hint.setText('Đăng nhập để ghi nhận nghỉ và phản hồi. Dữ liệu chờ gửi thuộc riêng tài khoản đã tạo.')
+            return
+        from ui.progress_view import ProgressDialog
+        if self._progress_dialog is not None:
+            self._progress_dialog.close()
+        auth = self.auth
+        dialog = ProgressDialog(self._progress_queue(), auth, self.cfg['device_id'], self._sync_commands, self.window, self._resolve_commands)
+        self._progress_dialog = dialog
+        dialog.show()
+        self._sync_commands()
+
+        def read_goals():
+            today = datetime.now(timezone(timedelta(hours=7))).date()
+            query = urllib.parse.urlencode(dict(from_=today.isoformat(), to=(today + timedelta(days=1)).isoformat(), page=0, size=100)).replace('from_=', 'from=')
+            request = urllib.request.Request(auth.base_url + '/api/v1/config/me/goals?' + query)
+            with auth.open(request, timeout=5) as response:
+                return json.load(response)
+
+        def received(data):
+            if self.auth is not auth or not dialog.isVisible():
+                return
+            items = data.get('items', [])
+            messages = [f"{'Tỷ lệ ngồi sai tối đa' if g['type'] == 'BAD_RATIO_MAX' else 'Số lần nghỉ tối thiểu'}: {g['target']}" for g in items if g['status'] == 'ACTIVE']
+            dialog.goals.setText('Mục tiêu hôm nay: ' + ('; '.join(messages) if messages else 'chưa đặt. Đặt mục tiêu trên web.'))
+
+        def unavailable(error):
+            if self.auth is auth and dialog.isVisible():
+                dialog.goals.setText('Chưa lấy được mục tiêu. Bạn vẫn có thể ghi nhận nghỉ/phản hồi để gửi bù.')
+
+        self._track(Task(read_goals), received, unavailable)
+
+    def _resolve_commands(self):
+        if not self.auth or self._command_busy:
+            return
+        auth = self.auth
+        self._command_busy = True
+
+        def done(result):
+            self._command_busy = False
+            if self.auth is auth and self._progress_dialog is not None and self._progress_dialog.isVisible():
+                self._progress_dialog.refresh()
+                if isinstance(result, Exception):
+                    self._progress_dialog.status.setText('Chưa đối soát được với máy chủ. Các thao tác chờ vẫn được giữ.')
+
+        self._track(Task(lambda: self._commands.resolve_failed(auth)), done, done)
 
     def request_recalibrate(self):
         if self.engine is not None and self.mode != "login":
