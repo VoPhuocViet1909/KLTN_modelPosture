@@ -13,6 +13,10 @@ posture_model/distance_check.csv
 *.db-shm
 *.db-wal
 
+# Cấu hình thiết bị IoT (có khóa thiết bị), chỉ ở máy; file mẫu: iot_config.example.json
+posture_model/iot_config.json
+posture_model/iot_config.json.tmp
+
 # Dữ liệu server giả nhận được
 **/mock_data/
 

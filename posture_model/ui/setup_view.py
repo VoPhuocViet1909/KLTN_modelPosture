@@ -4,12 +4,16 @@ from urllib.parse import urlsplit
 import cv2
 from PySide6.QtCore import QSettings, Qt, Slot
 from PySide6.QtGui import QPixmap
-from PySide6.QtWidgets import (QComboBox, QDialog, QDialogButtonBox, QFormLayout, QFrame,
+from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFormLayout, QFrame,
                                QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea,
                                QSizePolicy, QVBoxLayout, QWidget)
 
+import iot_config
+from iot_notifier import probe
 from ui.bridge import Task
 from ui.camera_view import _qimage
+from ui.tokens import labels
+from ui.widgets import ConnectionDot
 
 
 def preferences():
@@ -57,8 +61,10 @@ def snapshots(side, front, capture=None):
 
 
 class SetupDialog(QDialog):
-    def __init__(self, side, front, server, parent=None, server_editable=True):
+    def __init__(self, side, front, server, parent=None, server_editable=True, iot=None):
         super().__init__(parent)
+        self.iot = iot                  # IotNotifier đang chạy trong app (None khi mở lần đầu): lưu xong áp dụng ngay
+        self.iot_task = None
         self.setWindowTitle("Thiết lập Posture Monitor")
         self.setMinimumWidth(580)
         self.resize(640, 680)
@@ -137,6 +143,7 @@ class SetupDialog(QDialog):
         next_step.setWordWrap(True)
         next_step.setObjectName("note")
         lay.addWidget(next_step)
+        lay.addWidget(self._iot_panel())
         self.error = QLabel()
         self.error.setObjectName("error")
         self.error.setWordWrap(True)
@@ -156,6 +163,103 @@ class SetupDialog(QDialog):
         outer.addLayout(actions)
         for combo in (self.side, self.front):
             combo.currentTextChanged.connect(self.clear_images)
+
+    # ---------------------------------------------------------------- thiết bị IoT
+    def _iot_panel(self):
+        t = labels()["iot"]
+        cfg = iot_config.load()
+        card = QFrame()
+        card.setObjectName("panel")
+        lay = QVBoxLayout(card)
+        heading = QLabel(t["title"])
+        heading.setObjectName("sectionTitle")
+        lay.addWidget(heading)
+        note = QLabel(t["note"])
+        note.setObjectName("note")
+        note.setWordWrap(True)
+        lay.addWidget(note)
+        self.iot_enabled = QCheckBox(t["enable"])
+        self.iot_enabled.setChecked(cfg["enabled"])
+        lay.addWidget(self.iot_enabled)
+        form = QFormLayout()
+        self.iot_url = QLineEdit(cfg["url"])
+        self.iot_url.setAccessibleName(t["url"])
+        self.iot_key = QLineEdit(cfg["key"])
+        self.iot_key.setEchoMode(QLineEdit.Password)
+        self.iot_key.setAccessibleName(t["key"])
+        self.iot_key.setPlaceholderText(t["key_hint"])
+        form.addRow(t["url"], self.iot_url)
+        form.addRow(t["key"], self.iot_key)
+        lay.addLayout(form)
+        self.iot_mute = QCheckBox(t["mute_pc"])
+        self.iot_mute.setChecked(cfg["mute_pc_beep"])
+        lay.addWidget(self.iot_mute)
+        row = QHBoxLayout()
+        self.iot_test = QPushButton(t["test"])
+        self.iot_test.clicked.connect(lambda: self.iot_probe(True))
+        self.iot_dot = ConnectionDot()
+        row.addWidget(self.iot_test)
+        row.addWidget(self.iot_dot, 1)
+        lay.addLayout(row)
+        self.iot_dot.dot.setPixmap(ConnectionDot._dot("lost"))
+        self.iot_dot.text.setText(t["idle"])
+        self.iot_dot.text.setWordWrap(True)
+        for w in (self.iot_url, self.iot_key):
+            w.textChanged.connect(self.iot_reset_status)
+        if cfg["enabled"]:
+            self.iot_probe(False)
+        return card
+
+    def iot_values(self):
+        url = self.iot_url.text().strip()
+        norm = iot_config.normalize_url(url) if url else iot_config.DEFAULTS["url"]
+        if norm is None:
+            raise ValueError(labels()["iot"]["bad_url"])
+        cfg = iot_config.load()                      # giữ timeout, chu kỳ... người dùng đã sửa tay trong file
+        cfg.update(enabled=self.iot_enabled.isChecked(), url=norm, key=self.iot_key.text().strip(),
+                   mute_pc_beep=self.iot_mute.isChecked())
+        return cfg
+
+    def iot_reset_status(self):
+        if self.iot_task is None or not self.iot_task.isRunning():
+            self.iot_dot.dot.setPixmap(ConnectionDot._dot("lost"))
+            self.iot_dot.text.setText(labels()["iot"]["idle"])
+
+    def iot_probe(self, test):
+        """Kiểm tra thiết bị (và phát âm thử nếu test) ở luồng nền; kết quả chỉ hiện ở dòng trạng thái, không bật hộp thoại."""
+        if self.iot_task is not None and self.iot_task.isRunning():
+            return
+        try:
+            cfg = self.iot_values()
+        except ValueError as e:
+            self.iot_dot.text.setText(str(e))
+            return
+        self.iot_test.setEnabled(False)
+        self.iot_test.setText(labels()["iot"]["testing"])
+        self.iot_task = Task(lambda: probe(cfg["url"], cfg["key"], test=test), self)
+        self.iot_task.done.connect(self.iot_show)
+        self.iot_task.finished.connect(self.iot_probe_finished)
+        self.iot_task.start()
+
+    @Slot(object)
+    def iot_show(self, r):
+        t = labels()["iot"]
+        if r["ok"]:
+            info = r["info"]
+            detail = t["info"].format(fw="v" + str(info.get("fw", "?")), rssi=info.get("rssi", "?"))
+            text = f"{t['tested'] if r['tested'] else t['connected']} · {detail}"
+        else:
+            text = t["bad_key"] if r["error"] == "BAD_KEY" else t["unreachable"]
+        self.iot_dot.dot.setPixmap(ConnectionDot._dot("ok" if r["ok"] else "lost"))
+        self.iot_dot.text.setText(text)
+
+    @Slot()
+    def iot_probe_finished(self):
+        self.iot_test.setEnabled(True)
+        self.iot_test.setText(labels()["iot"]["test"])
+
+    def _busy(self):
+        return any(t is not None and t.isRunning() for t in (self.task, self.iot_task))
 
     def values(self):
         front = self.front.currentText().strip()
@@ -210,6 +314,11 @@ class SetupDialog(QDialog):
         except ValueError as e:
             self.error.setText(str(e))
             return
+        try:
+            iot_cfg = self.iot_values()
+        except ValueError as e:
+            self.error.setText(str(e))
+            return
         settings = preferences()
         for key, value in zip(("side", "front", "server"), values):
             settings.setValue(key, value)
@@ -218,15 +327,20 @@ class SetupDialog(QDialog):
         if settings.status() != QSettings.NoError:
             self.error.setText("Không lưu được thiết lập. Kiểm tra quyền ghi của tài khoản Windows rồi thử lại.")
             return
+        if not iot_config.save(iot_cfg):
+            self.error.setText(labels()["iot"]["save_failed"])
+            return
+        if self.iot is not None:
+            self.iot.apply(iot_cfg)                  # áp dụng ngay, không cần khởi động lại
         self.result_values = values
         self.accept()
 
     def reject(self):
-        if self.task is None or not self.task.isRunning():
+        if not self._busy():
             super().reject()
 
     def closeEvent(self, event):
-        if self.task is not None and self.task.isRunning():
+        if self._busy():
             event.ignore()
         else:
             super().closeEvent(event)

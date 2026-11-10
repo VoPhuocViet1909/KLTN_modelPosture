@@ -154,7 +154,7 @@ class PostureEngine:
     SYNC_EVERY = 1.0            # giây giữa hai lần đọc trạng thái gửi (SQLite)
 
     def __init__(self, opts, cfg=None, model_cfg=None, auth=None, config_sync=None, notifier=None,
-                 listener=None, viewer=None):
+                 listener=None, viewer=None, iot=None):
         self.o = opts
         if cfg is None:
             cfg, model_cfg = load_config(opts.config)
@@ -162,6 +162,7 @@ class PostureEngine:
         self.auth, self.config_sync = auth, config_sync
         self.notifier = notifier if notifier is not None else Notifier(cfg)
         self.listener = listener or EngineListener()
+        self.iot = iot                # IotNotifier (gửi cảnh báo xuống ESP32) hoặc None
         self.viewer = viewer          # CLI: viewer.show(engine, vis_side, vis_front) -> mã phím hoặc -1
         self.want_frames = False
         self._stop = threading.Event()
@@ -322,6 +323,8 @@ class PostureEngine:
         apply_config(cfg, self.trackers, self.rem, self.pres)
         self.elog = EventLog(o.events, self.model_cfg.get("version"), wall_t0=time.time(), user_id=self.user_id(),
                              listeners=[self.notifier, self._relay_alert])
+        if self.iot is not None:
+            self.elog.listeners.append(self.iot.on_event)
 
         # gửi dữ liệu
         if o.send:
@@ -523,6 +526,8 @@ class PostureEngine:
                                    config=cfg.snapshot())
                     print("Đã áp dụng cấu hình mới:", sorted(changed))
                     self.listener.on_config(set(changed))
+                    if self.iot is not None:
+                        self.iot.on_config(set(changed), cfg)
 
             calibrating = base is None
             if calibrating:  # ======================================== hiệu chỉnh
@@ -697,14 +702,17 @@ class PostureEngine:
             stage = None if not calibrating else ("failed" if cal_fail else "measuring")
             if st != last_state or stage != last_stage or wall - last_state_t >= self.STATE_EVERY:
                 last_state, last_stage, last_state_t = st, stage, wall
-                self.listener.on_state(dict(
+                payload = dict(
                     state=st, calibrating=calibrating, calibLeft=max(left, 0) if calibrating else 0.0,
                     sittingSec=rem.sitting_sec(now), away=pres.away,
                     distanceCm=None if not np.isfinite(d_med) or ed is None else float(d_med),
                     neck=tr_neck.status, tilt=tr_tilt.status if tilt_base is not None else "...",
                     distance=tr_dist.status if ed is not None else "...", pBad=snap.get("pBad"),
                     frontSkipped=self._front_off, stream=self.stream_info(),
-                    calib=self._calib_payload(progress, cal_fail, now, cap_f is not None) if calibrating else None))
+                    calib=self._calib_payload(progress, cal_fail, now, cap_f is not None) if calibrating else None)
+                self.listener.on_state(payload)
+                if self.iot is not None:
+                    self.iot.on_state(payload)
             if wall - last_sync_t >= self.SYNC_EVERY:
                 last_sync_t = wall
                 self._publish_sync()
@@ -745,6 +753,8 @@ class PostureEngine:
         self.elog.emit(dict(eventType="SESSION_END", t=now, durationSec=round(now, 1),
                             alertCount={t.alert_type: t.count for t in self.trackers}))
         self.elog.close()
+        if self.iot is not None:
+            self.iot.close()                              # báo OFFLINE cho thiết bị, dừng luồng nền
         self.agg.flush()                                  # cửa sổ metrics cuối (chưa đủ 60 giây)
         self.metrics_f.close()
         self.sender.stop(timeout=None)                    # Chờ worker xong trước khi đóng SQLite, kể cả refresh.

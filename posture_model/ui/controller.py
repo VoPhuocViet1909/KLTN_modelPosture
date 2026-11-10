@@ -17,9 +17,11 @@ from datetime import datetime, timezone, timedelta
 from PySide6.QtCore import QObject, Qt, QTimer, Slot
 from PySide6.QtWidgets import QApplication, QDialog, QFileDialog, QHBoxLayout, QLabel, QPushButton, QSystemTrayIcon, QVBoxLayout
 
+import iot_config
 import login_service
 from api_session import AuthError
 from engine import APP_DIR, EngineOptions, PostureEngine, load_config
+from iot_notifier import IotNotifier
 from ui import icons
 from ui.bridge import EngineBridge, EngineThread, QtNotifier, Task
 from ui.camera_view import CameraView
@@ -114,6 +116,7 @@ class AppController(QObject):
         self.camera = CameraView()
         self.bridge = EngineBridge()
         self.notifier = QtNotifier(self.cfg)
+        self.iot = IotNotifier(iot_config.load(), app_cfg=self.cfg)    # luôn tạo để bật/tắt trong thiết lập có hiệu lực ngay
         self.window.setWindowIcon(make_icon("GOOD"))
 
         b = self.bridge
@@ -176,7 +179,7 @@ class AppController(QObject):
             from ui.setup_view import SetupDialog
             self.camera.hide()
             dialog = SetupDialog(self.opts.side, self.opts.front, self.base_url, self.window,
-                                 server_editable=mode != "session")
+                                 server_editable=mode != "session", iot=self.iot)
             if dialog.exec() == SetupDialog.Accepted:
                 side, front, server = dialog.result_values
                 self.opts = dataclasses.replace(self.opts, side=side, front=front,
@@ -333,7 +336,7 @@ class AppController(QObject):
         self._engine_error = None
         self.window.btn_setup.setText("Thiết lập camera và máy chủ")
         self.engine = PostureEngine(opts, cfg=self.cfg, model_cfg=self.model_cfg, auth=auth, config_sync=config_sync,
-                                    notifier=self.notifier, listener=self.bridge)
+                                    notifier=self.notifier, listener=self.bridge, iot=self.iot)
         self.engine.want_frames = self.camera.isVisible()
         self.thread = EngineThread(self.engine)
         self.window.login.reset()
@@ -450,7 +453,7 @@ class AppController(QObject):
         self.window.show_notice(alert_type, title, body)
         if self.cfg["notify_toast"] and self.tray.isVisible():
             self.tray.showMessage(title, body, QSystemTrayIcon.NoIcon, 6000)
-        if sev in ("MEDIUM", "HIGH") and self.cfg["notify_sound"]:
+        if sev in ("MEDIUM", "HIGH") and self.cfg["notify_sound"] and not self.iot.mutes_pc_beep:
             threading.Thread(target=beep, args=(sev,), daemon=True).start()
         if sev == "HIGH" and self.cfg["notify_popup"] and self._dialog is None:
             self._dialog = AlertDialog(alert_type, title, body)

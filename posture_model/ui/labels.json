@@ -66,5 +66,24 @@
     "sync_lost": "Mất kết nối, {n} bản chờ gửi",
     "sync_local": "Chưa đăng nhập, không gửi dữ liệu",
     "repeat_suffix": " (nhắc lần {level})"
+  },
+  "iot": {
+    "title": "Thiết bị IoT",
+    "note": "Gửi cảnh báo xuống thiết bị ESP32-S3 (loa, màn hình) trong cùng mạng WiFi. Thiết bị tắt thì ứng dụng vẫn chạy bình thường.",
+    "enable": "Gửi cảnh báo xuống thiết bị IoT",
+    "url": "Địa chỉ thiết bị",
+    "key": "Khóa thiết bị",
+    "key_hint": "Để trống nếu thiết bị chưa đặt khóa",
+    "mute_pc": "Tắt tiếng bíp trên máy tính khi có thiết bị",
+    "test": "Thử",
+    "testing": "Đang thử…",
+    "idle": "Chưa kiểm tra thiết bị",
+    "connected": "Đã kết nối",
+    "tested": "Đã gửi âm thử, thiết bị sẽ kêu",
+    "info": "{fw} · {rssi} dBm",
+    "unreachable": "Không kết nối được. Kiểm tra thiết bị đã bật, cùng mạng WiFi và địa chỉ đúng.",
+    "bad_key": "Sai khóa thiết bị. Nhập lại khóa đã đặt khi cài WiFi cho thiết bị.",
+    "bad_url": "Nhập địa chỉ thiết bị như http://192.168.1.20.",
+    "save_failed": "Không lưu được thiết lập thiết bị IoT. Kiểm tra quyền ghi thư mục ứng dụng rồi thử lại."
   }
 }
