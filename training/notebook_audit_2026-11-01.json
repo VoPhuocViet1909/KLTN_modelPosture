@@ -1,0 +1,113 @@
+{
+  "date": "2026-11-01",
+  "notebook_sha256": "242db6825d7c8bd15b1b0a0eed02b8b7902e81ef1400f638748032eb81d54d88",
+  "plan_sha256": "701903561d358967a1564a0596cc6f2996e8c5d88613d3136729275e0e436f0c",
+  "code_cells": 10,
+  "stored_outputs": 0,
+  "executed_cells_recorded": 0,
+  "training_rerun": false,
+  "feature_functions_matching": [
+    "_ang",
+    "apply_calibration",
+    "b_label",
+    "calibration_baseline",
+    "choose_side",
+    "facing_sign",
+    "frame_angles",
+    "group_b_score",
+    "rula_frame_label",
+    "score_neck",
+    "score_trunk",
+    "sequence_angles",
+    "sequence_shoulder_tilt",
+    "shoulder_tilt",
+    "to_model_input"
+  ],
+  "feature_functions_differing": [],
+  "folds": {
+    "P01": {
+      "train": 6757,
+      "test": 2843,
+      "recorded_n_matches": true
+    },
+    "P02": {
+      "train": 6079,
+      "test": 3521,
+      "recorded_n_matches": true
+    },
+    "P03": {
+      "train": 6364,
+      "test": 3236,
+      "recorded_n_matches": true
+    }
+  },
+  "recorded_metrics_not_recomputed": {
+    "loso_transformer": {
+      "P01": {
+        "n": 2843.0,
+        "acc": 0.969750263805839,
+        "kappa": 0.937216797281993,
+        "sens_bad": 1.0,
+        "spec_good": 0.9505462909718229,
+        "f1_bad": 0.962510897994769
+      },
+      "P02": {
+        "n": 3521.0,
+        "acc": 0.9985799488781596,
+        "kappa": 0.9970211106975958,
+        "sens_bad": 0.9981325863678805,
+        "spec_good": 0.9992748368382887,
+        "f1_bad": 0.9988320485867788
+      },
+      "P03": {
+        "n": 3236.0,
+        "acc": 0.992583436341162,
+        "kappa": 0.9829971223374122,
+        "sens_bad": 0.9931787175989086,
+        "spec_good": 0.991321118611379,
+        "f1_bad": 0.994535519125683
+      }
+    },
+    "loso_random_forest": {
+      "P01": {
+        "n": 2843.0,
+        "acc": 0.9824129440731622,
+        "kappa": 0.9632826028549744,
+        "sens_bad": 1.0,
+        "spec_good": 0.9712478435882691,
+        "f1_bad": 0.9778565101860053
+      },
+      "P02": {
+        "n": 3521.0,
+        "acc": 0.9991479693268958,
+        "kappa": 0.9982117420883653,
+        "sens_bad": 0.9995331465919701,
+        "spec_good": 0.9985496736765772,
+        "f1_bad": 0.9992998833138856
+      },
+      "P03": {
+        "n": 3236.0,
+        "acc": 0.9987639060568603,
+        "kappa": 0.9971604061155727,
+        "sens_bad": 0.9995452478399273,
+        "spec_good": 0.9971070395371263,
+        "f1_bad": 0.9990909090909091
+      }
+    }
+  },
+  "checkpoint_strict_load": true,
+  "parameter_count": 68865,
+  "export_equivalence": {
+    "csv_windows": 16,
+    "synthetic_windows": 17,
+    "max_abs_logit_error": 3.814697265625e-06,
+    "max_abs_probability_error": 2.980232238769531e-07,
+    "probabilities_allclose_atol_1e_4": true,
+    "scope": "existing weights, reconstructed CSV windows and synthetic inputs; not raw-video replay or training reproduction"
+  },
+  "versions": {
+    "torch": "2.14.0+cpu",
+    "numpy": "2.4.6",
+    "onnxruntime": "1.31.0"
+  }
+}

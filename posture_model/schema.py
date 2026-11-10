@@ -9,6 +9,7 @@ format date-time / uuid, allOf, if/then, $ref tới file khác trong schemas/).
   errors = validate("event", ev)        # [] nếu hợp lệ
 """
 import json
+import math
 import os
 import re
 import uuid
@@ -106,4 +107,24 @@ def validate(name, value):
     """Trả về danh sách lỗi (rỗng nếu hợp lệ)."""
     errs = []
     _check(load(name), value, "$", errs)
+    if name in ("metrics", "metrics.schema.json") and isinstance(value, dict):
+        errs.extend(validate_timing(value))
     return errs
+
+
+def validate_timing(m):
+    keys = ("postureKnownSec", "postureGoodSec")
+    if not any(k in m for k in keys):
+        return []
+    nums = [m.get(k) for k in (*keys, "presenceSec", "coveredSec", "windowSec")]
+    if any(isinstance(x, bool) or not isinstance(x, (int, float)) or not math.isfinite(x) for x in nums):
+        return ["$.postureKnownSec: timing requires finite counters and both fields"]
+    known, good, presence, covered, window = nums
+    ratio = m.get("goodRatio")
+    if min(known, good, presence, covered) < 0 or good > known + .000001 or known > presence + .2 or presence > covered + .2 or covered > window + .2:
+        return ["$.postureKnownSec: inconsistent timing counters"]
+    if (known == 0 and (good != 0 or ratio is not None)) or (known > 0 and (
+            isinstance(ratio, bool) or not isinstance(ratio, (float, int)) or not math.isfinite(ratio)
+            or abs(ratio - good / known) > .001001)):
+        return ["$.goodRatio: inconsistent with timing counters"]
+    return []

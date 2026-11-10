@@ -49,7 +49,7 @@ def main(out):
     w.show_notice("NECK_TRUNK", "Cúi cổ, gù lưng", "Bạn đang cúi hoặc gù lưng. Ngồi thẳng, kéo vai ra sau nhé.")
     wait(900)
     w.grab().save(os.path.join(out, "07_banner_canh_bao.png"))
-    w.show_notice("SIT_TOO_LONG", "Ngồi quá lâu", "Bạn đã ngồi liên tục 50 phút. Đứng dậy đi lại 2–3 phút nhé.")
+    w.show_notice("SIT_TOO_LONG", "Ngồi quá lâu", "Bạn đã ngồi liên tục 30 phút. Đứng dậy đi lại khoảng 2 phút nhé.")
     w.set_state(CASES[1][1])
     wait(900)
     w.grab().save(os.path.join(out, "08_banner_nghi_ngoi.png"))

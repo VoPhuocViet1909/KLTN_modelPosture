@@ -22,6 +22,7 @@ import argparse
 import csv
 import json
 import math
+import os
 import time
 import uuid
 from datetime import datetime, timezone
@@ -54,11 +55,12 @@ class _Window:
 
 class MetricsAggregator:
     def __init__(self, on_metric, wall_t0, session_id, device_id, user_id=None, window_sec=60,
-                 model_version=None, app_version="1.0.0"):
+                 model_version=None, app_version="1.0.0", timing_v1=None):
         self.on_metric = on_metric
         self.wall_t0, self.window = wall_t0, int(window_sec)
         self.session_id, self.device_id, self.user_id = session_id, device_id, user_id
         self.model_version, self.app_version = model_version, app_version
+        self.timing_v1 = os.environ.get("KLTN_POSTURE_TIMING_V1") == "1" if timing_v1 is None else timing_v1
         self.cur = None
         self.last_now = None
 
@@ -134,6 +136,9 @@ class MetricsAggregator:
             "postureScore": self.score(w, good, sh_bad, close),
             "modelVersion": self.model_version, "appVersion": self.app_version,
         }
+        if self.timing_v1:
+            # More precision than display counters keeps the ratio consistent for short samples.
+            m.update(postureKnownSec=round(w.t["neck_known"], 6), postureGoodSec=round(w.t["neck_good"], 6))
         for k in ("neckMax", "trunkMax", "tiltAbsMax", "distanceMinCm"):
             if m[k] is not None:
                 m[k] = round(m[k], 2)

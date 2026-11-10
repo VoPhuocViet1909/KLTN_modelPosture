@@ -191,7 +191,14 @@ class ApiSession:
 
     def open(self, request, timeout=5):
         # Only explicitly allowed safe-to-replay operations use this helper.
-        if (request.full_url, request.get_method()) not in (
+        parsed = urllib.parse.urlsplit(request.full_url)
+        base = urllib.parse.urlsplit(self.base_url)
+        personal_command = (parsed.scheme, parsed.netloc) == (base.scheme, base.netloc) and not parsed.query and (
+            parsed.path == '/api/v1/alerts/me/break-actions' and request.get_method() == 'POST'
+            or parsed.path.startswith('/api/v1/alerts/me/feedback/') and request.get_method() == 'PUT'
+            and self._feedback_path(parsed.path))
+        personal_goals = (parsed.scheme, parsed.netloc) == (base.scheme, base.netloc) and parsed.path in ('/api/v1/config/me/goals', '/api/v1/alerts/me/breaks', '/api/v1/alerts/me/feedback') and request.get_method() == 'GET'
+        if not (personal_command or personal_goals) and (request.full_url, request.get_method()) not in (
                 (self.base_url + "/api/v1/telemetry/batch", "POST"),
                 (self.base_url + "/api/v1/auth/media-token", "POST"),
                 (self.base_url + "/api/v1/config/me", "GET")):
@@ -206,3 +213,11 @@ class ApiSession:
             error.close()
         request.add_header("Authorization", "Bearer " + self.token(rejected=token))
         return self._opener.open(request, timeout=timeout)
+
+    @staticmethod
+    def _feedback_path(path):
+        try:
+            uuid.UUID(path.rsplit('/', 1)[1])
+            return True
+        except ValueError:
+            return False

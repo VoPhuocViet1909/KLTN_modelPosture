@@ -25,6 +25,7 @@ class MainWindow(QMainWindow):
     skipFrontRequested = Signal()
     setupRequested = Signal()
     streamRequested = Signal(object)
+    progressRequested = Signal()
 
     PAGE_LOGIN, PAGE_STATUS = 0, 1
 
@@ -144,6 +145,10 @@ class MainWindow(QMainWindow):
         self.btn_cam.clicked.connect(self.cameraRequested)
         bottom.addWidget(self.btn_cam, 0, Qt.AlignBottom)
         outer.addLayout(bottom)
+        self.btn_progress = QPushButton('Nghỉ và phản hồi')
+        self.btn_progress.setMinimumHeight(44)
+        self.btn_progress.clicked.connect(self.progressRequested)
+        outer.addWidget(self.btn_progress)
         share = QFrame()
         share.setObjectName("panel")
         sl = QVBoxLayout(share)

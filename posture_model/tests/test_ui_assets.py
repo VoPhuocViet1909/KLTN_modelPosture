@@ -2,6 +2,7 @@
 import os
 import re
 import sys
+from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -10,7 +11,7 @@ sys.path.insert(0, os.path.dirname(HERE))
 from ui import build_theme  # noqa: E402
 from ui.tokens import UI_DIR, labels, tokens  # noqa: E402
 
-WEB = os.environ.get("KLTN_WEB_ROOT", os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(HERE))), "FE", "KLTN_dashboard"))
+WEB = os.environ.get("KLTN_WEB_ROOT", os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(HERE))), "KLTN_dashboard"))
 CSS, LABELS_TS = os.path.join(WEB, "src", "index.css"), os.path.join(WEB, "src", "lib", "labels.ts")
 
 
@@ -56,7 +57,39 @@ def test_notifier_uses_labels():
     assert t == "Cúi cổ, gù lưng" and "kéo vai ra sau nhé" in b
     t, b = format_message(dict(alertType="TOO_CLOSE", eventType="ALERT_REPEATED", level=2, snapshot={"distanceCm": 41}),
                           {"distance_on_cm": 50})
-    assert t == "Ngồi quá gần màn hình (nhắc lần 2)" and "41 cm" in b and "50 cm" in b
+    assert t == "Ngồi quá gần màn hình (nhắc lần 2)" and "dưới 50 cm" in b      # mức 2: câu có căn cứ, không có số đo
+    t, b = format_message(dict(alertType="TOO_CLOSE", eventType="ALERT_STARTED", level=1, snapshot={"distanceCm": 41}),
+                          {"distance_on_cm": 50})
+    assert "41 cm" in b and "50 cm" in b
+
+
+def test_messages_have_three_levels():
+    for k, v in labels()["alert"].items():
+        assert set(v["messages"]) == {"1", "2", "3"}, k
+        assert v["messages"]["1"] == v["message"], k
+
+
+def test_format_message_by_level():
+    from notifier import format_message
+    cfg = {"distance_on_cm": 50}
+    msgs = labels()["alert"]
+    for lv in (1, 2, 3):
+        _, b = format_message(dict(alertType="NECK_TRUNK", eventType="ALERT_REPEATED", level=lv), cfg)
+        assert b == msgs["NECK_TRUNK"]["messages"][str(lv)]
+    _, b = format_message(dict(alertType="SIT_TOO_LONG", eventType="REMINDER", level=3, sittingMin=92.4), cfg)
+    assert b.startswith("Đã ngồi liền 92 phút.") and "tim mạch" in b
+    _, b = format_message(dict(alertType="TOO_CLOSE", eventType="ALERT_REPEATED", level=1, snapshot={"distanceCm": 41}), cfg)
+    assert "41 cm" in b and "50 cm" in b
+
+
+def test_format_message_falls_back_to_lower_level():
+    import notifier
+    with patch.dict(notifier.MESSAGES_BY_LEVEL, {"NECK_TRUNK": {"1": "mot", "2": "hai"}}):
+        assert notifier.message_for_level("NECK_TRUNK", 3) == "hai"
+        assert notifier.message_for_level("NECK_TRUNK", 1) == "mot"
+        notifier.MESSAGES_BY_LEVEL["NECK_TRUNK"] = {}
+        assert notifier.message_for_level("NECK_TRUNK", 3) == notifier.MESSAGES["NECK_TRUNK"][1]
+        assert notifier.message_for_level("NECK_TRUNK", None) == notifier.MESSAGES["NECK_TRUNK"][1]
 
 
 def test_theme_qss_is_current():

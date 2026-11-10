@@ -96,7 +96,12 @@ def main():
         flush()
         assert ctl._dialog is None and ctl.window.banner.isHidden()
     ctl.app.aboutToQuit.disconnect(ctl._shutdown)
-    ctl.window.hide()
+    ctl._shutdown()
+    # Destroy widgets while QApplication is still alive, before Python teardown.
+    for widget in (ctl.window, ctl.camera, ctl.tray, ctl.tray.menu):
+        widget.deleteLater()
+    ctl.deleteLater()
+    flush()
     print("PASS: incomplete/invalid acknowledgements retain IDs; severity/config routing, popup repeat/dismiss, stop/login/finished cleanup")
 
 
