@@ -7,6 +7,7 @@ Vòng đời:  màn đăng nhập --đăng nhập / mở lại phiên đã nhớ
 import dataclasses
 import os
 import shutil
+import sqlite3
 import threading
 import time
 import json
@@ -492,7 +493,12 @@ class AppController(QObject):
         if self._progress_dialog is not None:
             self._progress_dialog.close()
         auth = self.auth
-        dialog = ProgressDialog(self._progress_queue(), auth, self.cfg['device_id'], self._sync_commands, self.window, self._resolve_commands)
+        try:
+            dialog = ProgressDialog(self._progress_queue(), auth, self.cfg['device_id'], self._sync_commands, self.window, self._resolve_commands,
+                                    lambda state: self._export_command_history(auth, state))
+        except (OSError, ValueError, sqlite3.Error):
+            self.window.hint.setText('Chưa đọc được lịch sử nghỉ/phản hồi. Kiểm tra dung lượng trống và quyền ghi trên máy rồi thử lại.')
+            return
         self._progress_dialog = dialog
         dialog.show()
         self._sync_commands()
@@ -516,6 +522,29 @@ class AppController(QObject):
                 dialog.goals.setText('Chưa lấy được mục tiêu. Bạn vẫn có thể ghi nhận nghỉ/phản hồi để gửi bù.')
 
         self._track(Task(read_goals), received, unavailable)
+
+    def _export_command_history(self, auth, state):
+        if self.auth is not auth or self.mode != 'session' or self._leaving:
+            return
+        dialog = self._progress_dialog
+        if dialog is None or not dialog.isVisible() or not dialog.history.export.isEnabled():
+            return
+        path, _ = QFileDialog.getSaveFileName(dialog, 'Xuất lịch sử nghỉ và phản hồi', 'lich-su-nghi-phan-hoi.json', 'JSON (*.json)')
+        if not path or self.auth is not auth or self._leaving or not dialog.isVisible():
+            return
+        history = dialog.history
+        history.exporting(True, 'Đang xuất lịch sử của tài khoản tại máy chủ này…')
+        queue = self._progress_queue()
+
+        def done(result):
+            if self.auth is auth and dialog.isVisible():
+                history.exporting(False, f'Đã xuất {result} thao tác. File chỉ chứa lịch sử nghỉ và phản hồi trên máy.')
+
+        def failed(error):
+            if self.auth is auth and dialog.isVisible():
+                history.exporting(False, 'Chưa xuất được file. Kiểm tra thư mục đích và dung lượng trống rồi thử lại.')
+
+        self._track(Task(lambda: queue.export_history(auth, path, state)), done, failed)
 
     def _resolve_commands(self):
         if not self.auth or self._command_busy:

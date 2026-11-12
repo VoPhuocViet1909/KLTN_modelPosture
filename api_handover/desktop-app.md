@@ -245,6 +245,18 @@ cần nghiệm thu riêng. Kiểm giả lập runnable: `python posture_model/te
 
 ## Bảo toàn dữ liệu và cảnh báo khi rời phiên
 
+### Lịch sử nghỉ/phản hồi trên máy — bước 11/A6
+
+Đang đăng nhập: mở **Nghỉ và phản hồi → Xem lịch sử trên máy**. Lịch sử đọc từ đĩa nên có thể xem khi mất mạng, miễn phiên vẫn còn trên ứng dụng. Đây không phải chế độ đăng nhập offline mới.
+
+- Bộ lọc có tất cả, chờ gửi, đã gửi, bị từ chối và đã bỏ sau đối soát; mỗi trang 25 thao tác, mới nhất trước. Chọn dòng để xem mã thao tác, thiết bị và ghi chú liên quan.
+- **Thử gửi lệnh chờ** dùng luồng gửi hiện có; không tự mở lại lệnh bị máy chủ từ chối. Dùng thao tác đối soát có xác nhận trong hộp thoại khi cần phục hồi chuỗi lỗi.
+- **Xuất lịch sử JSON** xuất toàn bộ thao tác của tài khoản tại máy chủ hiện tại theo bộ lọc, kể cả các trang khác. Ghi file ở luồng nền, chỉ thay file đích khi ghi xong; không tải file lên mạng. File không chứa token/receipt và không bao gồm toàn bộ dữ liệu telemetry, ảnh hoặc video. Đây là bản xuất để đọc, chưa có chức năng nhập phục hồi từ JSON.
+- Thời điểm lưu trên máy hiển thị giờ Việt Nam. Bản ghi trước nâng cấp chưa có thời điểm này sẽ hiện chưa rõ; không lấy thời điểm cảnh báo thay cho thời điểm gửi phản hồi.
+- Đăng xuất đóng hộp thoại. Bản xuất đã được người dùng bắt đầu có thể hoàn tất trên đĩa, nhưng callback không hiển thị kết quả sang phiên khác. File đã xuất vẫn ở đường dẫn đã chọn.
+
+SQLite `commands` thêm `created_at` nullable và index theo server/owner/state/seq; nâng cấp lặp lại an toàn, giữ các operationId, body, version và trạng thái cũ. Không đổi API/schema telemetry hay cờ timing. Chạy `test_command_history.py` và `test_command_history_view.py` để kiểm bằng SQLite/Qt offscreen; chưa thay cho nghiệm thu server hoặc bản exe.
+
 Sender chỉ đánh dấu gửi/từ chối khi phản hồi có đủ ID trong `accepted`/`rejected`, không
 trùng hoặc lẫn ID ngoài lô. Phản hồi thiếu/sai giữ nguyên dữ liệu và thử lại; ID không đổi.
 Khi đăng xuất/hết phiên/dừng engine, app dọn banner/popup và bỏ cảnh báo đang chờ của phiên cũ.

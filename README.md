@@ -4,6 +4,8 @@ Nhánh `feat/software-expansion-m1`: thêm **Nghỉ và phản hồi**, hộp th
 
 Để kiểm mã mới, chạy source `posture_model/app.py` bằng môi trường Python đã cài requirements. File exe có sẵn và `MoUngDung.vbs` ưu tiên exe có thể vẫn là bản cũ; chưa đóng gói lại trong đợt này.
 
+Bước 11/A6, nhánh `feat/local-command-history`: trong **Nghỉ và phản hồi → Xem lịch sử trên máy**, lọc thao tác chờ/đã gửi/bị từ chối/đã bỏ sau đối soát, xem chi tiết, thử gửi lệnh chờ và xuất toàn bộ lịch sử theo bộ lọc ra JSON. Dữ liệu giới hạn đúng tài khoản và máy chủ; file xuất chỉ gồm nghỉ/phản hồi lưu trên máy, không phải bản sao toàn bộ telemetry. Có kiểm SQLite/Qt offscreen; chưa nghiệm thu backend, webcam hoặc bản exe.
+
 ## Desktop App
 
 Mở bằng nhấp đúp `MoUngDung.vbs`, hoặc `posture_model/dist/PostureMonitor/PostureMonitor.exe`

@@ -1,11 +1,14 @@
 """No Docker: replay, owner isolation and REST allowlist with a fake transport."""
 import io
+from datetime import datetime, timedelta, timezone
+import itertools
 import json
 from pathlib import Path
 import sys
 import tempfile
 import urllib.error
 import urllib.request
+from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from api_session import ApiSession, AuthError
 from command_outbox import CommandOutbox
@@ -33,7 +36,9 @@ class Auth:
 
 
 def main():
-    with tempfile.TemporaryDirectory() as directory:
+    ticks = itertools.count()
+    clock = lambda: (datetime(2026, 11, 12, tzinfo=timezone.utc) + timedelta(seconds=next(ticks))).isoformat()
+    with tempfile.TemporaryDirectory() as directory, patch('command_outbox.now', side_effect=clock):
         path = str(Path(directory) / 'commands.db')
         queue = CommandOutbox(path)
         a, b = Auth(), Auth('two')
