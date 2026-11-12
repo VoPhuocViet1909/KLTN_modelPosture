@@ -3,7 +3,44 @@ import collections
 import json
 import threading
 import urllib.request
+import urllib.error
+import time
+import re
+import copy
+from datetime import datetime, timezone
 from observation import ObservationBuffer
+
+
+def valid_snapshot(value):
+    if not isinstance(value, dict):
+        return False
+    version = value.get('version')
+    try:
+        served = datetime.fromisoformat(value.get('servedAt', '').replace('Z', '+00:00'))
+        return (type(version) is int and 0 <= version <= 2**53 - 1
+                and isinstance(value.get('revision'), str) and re.fullmatch('[0-9a-f]{64}', value['revision']) is not None
+                and isinstance(value.get('effective'), dict) and served.tzinfo is not None)
+    except (ValueError, TypeError, AttributeError):
+        return False
+
+
+def config_status_text(info):
+    if not info:
+        return 'Chưa nhận cấu hình từ máy chủ.'
+    received, applied, result = (info.get(k) for k in ('received', 'applied', 'result'))
+    if received and received['version'] is None:
+        text = 'Máy chủ cũ: chưa xác nhận được phiên bản.'
+    elif result and result['state'] == 'REJECTED':
+        text = f"Đã từ chối cấu hình v{result['version']}; giữ cấu hình hợp lệ trước đó."
+    elif applied:
+        text = f"Desktop đã nạp cấu hình v{applied['version']}."
+        if received and any(received.get(k) != applied.get(k) for k in ('version', 'revision')):
+            text += f" Đang chờ nạp v{received['version']}."
+    elif received:
+        text = 'Máy chủ cũ: chưa xác nhận được phiên bản.' if received['version'] is None else f"Đã nhận v{received['version']}, đang chờ nạp."
+    else:
+        text = 'Chưa nhận cấu hình từ máy chủ.'
+    return text + (' Chưa kiểm tra được cấu hình mới.' if info.get('fetchError') else '')
 
 class ConfigSync:
     def __init__(self, auth):
@@ -16,6 +53,10 @@ class ConfigSync:
         self.stopped = threading.Event()
         self.snapshots = collections.deque(maxlen=1)
         self.observations = ObservationBuffer()
+        self.lock = threading.Lock()
+        self.received = self.applied = self.result = self.taken = None
+        self.fetch_error = False
+        self.next_poll = 0.0
         self.sio.on("config", lambda data: self.dirty.set())
         self.thread = threading.Thread(target=self._run, name="config-sync", daemon=True)
 
@@ -24,24 +65,61 @@ class ConfigSync:
 
     def take(self):
         try:
-            return self.snapshots.pop()
+            self.taken = self.snapshots.pop()
+            return self.taken['effective']
         except IndexError:
             return None
 
+    def complete(self, accepted):
+        snapshot = self.taken
+        self.taken = None
+        if snapshot is None:
+            return
+        metadata = dict(version=snapshot['version'], revision=snapshot['revision'],
+                        state='APPLIED' if accepted else 'REJECTED',
+                        appliedAt=datetime.now(timezone.utc).isoformat() if accepted else None)
+        with self.lock:
+            self.result = metadata
+            if accepted:
+                self.applied = metadata if metadata['version'] is not None else None
+        self.observations.set_config(metadata if metadata['version'] is not None else None)
+
+    def status(self):
+        with self.lock:
+            return copy.deepcopy(dict(received=self.received, applied=self.applied, result=self.result, fetchError=self.fetch_error))
+
     def _fetch(self):
-        request = urllib.request.Request(self.auth.base_url + "/api/v1/config/me")
-        with self.auth.open(request, timeout=5) as response:
-            config = json.loads(response.read(65536))
-        if not isinstance(config, dict):
-            raise ValueError("Invalid config snapshot")
-        self.snapshots.append(config)
+        try:
+            request = urllib.request.Request(self.auth.base_url + '/api/v1/config/me/snapshot')
+            with self.auth.open(request, timeout=5) as response:
+                snapshot = json.loads(response.read(65536))
+            if not valid_snapshot(snapshot):
+                raise ValueError('Invalid versioned snapshot')
+        except urllib.error.HTTPError as error:
+            if error.code != 404:
+                raise
+            request = urllib.request.Request(self.auth.base_url + '/api/v1/config/me')
+            with self.auth.open(request, timeout=5) as response:
+                config = json.loads(response.read(65536))
+            if not isinstance(config, dict):
+                raise ValueError('Invalid legacy snapshot')
+            snapshot = dict(version=None, revision=None, effective=config)
+        with self.lock:
+            previous = self.received
+            if (previous and previous['version'] is not None and snapshot['version'] is not None
+                    and snapshot['version'] < previous['version']):
+                raise ValueError('Config version regressed')
+            self.received = {k: snapshot[k] for k in ('version', 'revision')}
+            self.fetch_error = False
+        self.snapshots.append(snapshot)
+        self.next_poll = time.monotonic() + 30
 
     def _run(self):
         while not self.stopped.is_set():
             try:
                 if self.sio.connected:
                     self.observations.send(self.sio.emit)
-                if self.dirty.is_set():
+                if self.dirty.is_set() or time.monotonic() >= self.next_poll:
                     self.dirty.clear()
                     self._fetch()  # Fetch at startup even if the socket is unavailable.
                 if not self.sio.connected:
@@ -55,6 +133,8 @@ class ConfigSync:
                     self.dirty.clear()
                     self._fetch()  # Full authoritative snapshot; no stale push vs GET race.
             except Exception:
+                with self.lock:
+                    self.fetch_error = True
                 # Libraries may include token-bearing packets/URLs in errors. Never log them.
                 self.dirty.set()
                 print("Config sync unavailable; keeping last valid configuration")

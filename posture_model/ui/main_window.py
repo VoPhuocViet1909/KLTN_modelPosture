@@ -26,6 +26,7 @@ class MainWindow(QMainWindow):
     setupRequested = Signal()
     streamRequested = Signal(object)
     progressRequested = Signal()
+    telemetryRequested = Signal()
 
     PAGE_LOGIN, PAGE_STATUS = 0, 1
 
@@ -133,6 +134,10 @@ class MainWindow(QMainWindow):
         self.account.setWordWrap(True)
         self.account.setIndent(20)
         left.addWidget(self.account)
+        self.config_status = QLabel()
+        self.config_status.setObjectName('note')
+        self.config_status.setWordWrap(True)
+        left.addWidget(self.config_status)
         self.btn_login = QPushButton("Đăng nhập")
         self.btn_login.setObjectName("link")
         self.btn_login.setToolTip("Đăng nhập để gửi dữ liệu lên máy chủ và xem trên web")
@@ -149,6 +154,10 @@ class MainWindow(QMainWindow):
         self.btn_progress.setMinimumHeight(44)
         self.btn_progress.clicked.connect(self.progressRequested)
         outer.addWidget(self.btn_progress)
+        self.btn_telemetry = QPushButton('Dữ liệu trên máy')
+        self.btn_telemetry.setMinimumHeight(44)
+        self.btn_telemetry.clicked.connect(self.telemetryRequested)
+        outer.addWidget(self.btn_telemetry)
         share = QFrame()
         share.setObjectName("panel")
         sl = QVBoxLayout(share)
@@ -261,6 +270,8 @@ class MainWindow(QMainWindow):
 
     def set_sync(self, info):
         self.conn.set_info(info)
+        from config_sync import config_status_text
+        self.config_status.setText(config_status_text(info.get('configStatus')) if info and info.get('hasServer') else '')
 
     def show_notice(self, alert_type, title, body):
         self.banner.show_alert(alert_type, title, body)

@@ -44,6 +44,8 @@ class Sender(threading.Thread):
         self.interval, self.batch_max, self.timeout = interval, batch_max, timeout
         self.check_schema = check_schema
         self.auth = auth
+        if auth is not None:
+            self.outbox.bind(auth.base_url, auth.user_id)
         self._opener = urllib.request.build_opener(NoRedirect)
         self.q = queue.Queue()
         self._wake = threading.Event()
@@ -148,6 +150,8 @@ class Sender(threading.Thread):
         data = json.dumps(body, ensure_ascii=False).encode("utf-8")
         headers = {"Content-Type": "application/json", "X-Device-Id": self.device_id}
         try:
+            if self.auth:
+                self.outbox.assert_context(self.auth.base_url, self.auth.user_id)
             if self.auth and any(payload.get("userId") != self.auth.user_id for _, _, payload in items):
                 raise AuthError("Outbox belongs to another user; use that account or a separate --outbox")
             if self.token and not self.auth:

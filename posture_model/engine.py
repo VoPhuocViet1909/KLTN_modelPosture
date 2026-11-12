@@ -401,6 +401,7 @@ class PostureEngine:
                               lastError=self.sender.last_error,
                               authLost=bool(self.auth is not None and self.auth.lost),
                               lostKind=self.auth.lost_kind if self.auth is not None else None)
+        self.sync_info['configStatus'] = self.config_sync.status() if self.config_sync and hasattr(self.config_sync, 'status') else None
         self.listener.on_sync(self.sync_info)
 
     def _calib_payload(self, progress, cal_fail, now, front_available):
@@ -522,9 +523,11 @@ class PostureEngine:
                 last_cfg = now
                 changed = cfg.reload()
                 remote = self.config_sync.take() if self.config_sync else None
+                remote_ok = False
                 if remote is not None:
                     try:
                         changed |= cfg.apply_remote(remote)
+                        remote_ok = True
                     except ValueError:
                         print("Cấu hình máy chủ không hợp lệ; giữ cấu hình đang dùng")
                 if changed:
@@ -544,6 +547,8 @@ class PostureEngine:
                     self.listener.on_config(set(changed))
                     if self.iot is not None:
                         self.iot.on_config(set(changed), cfg)
+                if remote is not None and hasattr(self.config_sync, 'complete'):
+                    self.config_sync.complete(remote_ok)
 
             calibrating = base is None
             if calibrating:  # ======================================== hiệu chỉnh

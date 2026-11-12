@@ -15,8 +15,14 @@ import random
 import sqlite3
 import threading
 import time
+import hashlib
 
 BACKOFF_BASE, BACKOFF_MAX = 2.0, 300.0
+
+
+def scoped_path(directory, server, owner):
+    scope = hashlib.sha256((server.rstrip('/') + '\n' + str(owner)).encode()).hexdigest()
+    return os.path.join(directory, 'outbox-' + scope + '.db')
 
 
 class Outbox:
@@ -32,9 +38,44 @@ class Outbox:
             created_at REAL NOT NULL, attempts INTEGER DEFAULT 0, next_try REAL DEFAULT 0,
             sent_at REAL, dead INTEGER DEFAULT 0, last_error TEXT)""")
         self.db.execute("CREATE INDEX IF NOT EXISTS ix_due ON outbox(sent_at, dead, next_try)")
+        self.db.execute('CREATE TABLE IF NOT EXISTS outbox_context(singleton INTEGER PRIMARY KEY CHECK(singleton=1), server TEXT NOT NULL, owner TEXT NOT NULL)')
+
+    def bind(self, server, owner, allow_legacy=False):
+        """Bind before enqueue/send. Unknown legacy rows need an explicit owner-checked decision."""
+        server, owner = server.rstrip('/'), str(owner)
+        if not server or not owner:
+            raise ValueError('Missing telemetry source')
+        with self._lock:
+            self.db.execute('BEGIN IMMEDIATE')
+            try:
+                context = self.db.execute('SELECT server,owner FROM outbox_context WHERE singleton=1').fetchone()
+                if context and context != (server, owner):
+                    raise ValueError('Outbox belongs to another server or owner')
+                if not context:
+                    rows = self.db.execute('SELECT payload FROM outbox').fetchall()
+                    if rows and not allow_legacy:
+                        raise ValueError('Legacy outbox source requires confirmation')
+                    for (payload,) in rows:
+                        value = json.loads(payload)
+                        if not isinstance(value, dict) or value.get('userId') != owner:
+                            raise ValueError('Legacy outbox owner mismatch')
+                    self.db.execute('INSERT INTO outbox_context VALUES(1,?,?)', (server, owner))
+                self.db.execute('COMMIT')
+            except Exception:
+                self.db.execute('ROLLBACK')
+                raise
+
+    def assert_context(self, server, owner):
+        with self._lock:
+            context = self.db.execute('SELECT server,owner FROM outbox_context WHERE singleton=1').fetchone()
+        if context != (server.rstrip('/'), str(owner)):
+            raise ValueError('Outbox source mismatch')
 
     def put(self, kind, item_id, payload, urgent=False):
         with self._lock:
+            context = self.db.execute('SELECT owner FROM outbox_context WHERE singleton=1').fetchone()
+            if context and payload.get('userId') != context[0]:
+                raise ValueError('Outbox owner mismatch')
             self.db.execute("INSERT OR IGNORE INTO outbox(id, kind, payload, urgent, created_at) VALUES (?,?,?,?,?)",
                             (item_id, kind, json.dumps(payload, ensure_ascii=False), int(urgent), time.time()))
 
