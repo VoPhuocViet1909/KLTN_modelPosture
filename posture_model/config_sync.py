@@ -3,6 +3,7 @@ import collections
 import json
 import threading
 import urllib.request
+from observation import ObservationBuffer
 
 class ConfigSync:
     def __init__(self, auth):
@@ -14,6 +15,7 @@ class ConfigSync:
         self.dirty.set()
         self.stopped = threading.Event()
         self.snapshots = collections.deque(maxlen=1)
+        self.observations = ObservationBuffer()
         self.sio.on("config", lambda data: self.dirty.set())
         self.thread = threading.Thread(target=self._run, name="config-sync", daemon=True)
 
@@ -37,6 +39,8 @@ class ConfigSync:
     def _run(self):
         while not self.stopped.is_set():
             try:
+                if self.sio.connected:
+                    self.observations.send(self.sio.emit)
                 if self.dirty.is_set():
                     self.dirty.clear()
                     self._fetch()  # Fetch at startup even if the socket is unavailable.
@@ -45,6 +49,8 @@ class ConfigSync:
                     self.sio.connect(self.auth.base_url, auth={"token": token}, transports=["websocket"],
                                      socketio_path="socket.io", wait_timeout=5)
                     self.dirty.set()  # Startup and every reconnect recover missed updates.
+                    self.observations.send(self.sio.emit, force=True)
+                self.observations.send(self.sio.emit)
                 if self.dirty.wait(1):
                     self.dirty.clear()
                     self._fetch()  # Full authoritative snapshot; no stale push vs GET race.
@@ -53,6 +59,11 @@ class ConfigSync:
                 self.dirty.set()
                 print("Config sync unavailable; keeping last valid configuration")
                 self.stopped.wait(5)
+        try:
+            if self.sio.connected:
+                self.observations.send(self.sio.emit, force=True)
+        except Exception:
+            pass
         self.sio.disconnect()
 
     def stop(self):

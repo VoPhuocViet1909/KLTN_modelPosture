@@ -90,7 +90,7 @@ class TrayController(QSystemTrayIcon):
 
     def set_state(self, state):
         st = state if state in TRAY_STATES else "OFFLINE"
-        label = state_label(state) if state in TRAY_STATES else "Đang hiệu chỉnh"
+        label = state_label(state) if state in (*TRAY_STATES, 'CALIBRATING', 'UNKNOWN', 'CAMERA_LOST') else 'Chưa đủ dữ liệu'
         self.setIcon(self._icons[st])
         self.setToolTip(f"Posture Monitor – {label}")
         self.state = state

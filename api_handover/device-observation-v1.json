@@ -1,0 +1,44 @@
+{
+  "version": 1,
+  "heartbeatSec": 5,
+  "sourceMaxAgeSec": 3,
+  "displayTtlSec": 15,
+  "redisTtlSec": 20,
+  "states": [
+    {
+      "state": "GOOD",
+      "label": "Ngồi đúng",
+      "reason": "NONE"
+    },
+    {
+      "state": "BAD",
+      "label": "Đang ngồi sai",
+      "reason": "NONE"
+    },
+    {
+      "state": "AWAY",
+      "label": "Vắng mặt",
+      "reason": "NONE"
+    },
+    {
+      "state": "CALIBRATING",
+      "label": "Đang hiệu chỉnh",
+      "reason": "CALIBRATING"
+    },
+    {
+      "state": "UNKNOWN",
+      "label": "Chưa đủ dữ liệu",
+      "reason": "INSUFFICIENT_DATA"
+    },
+    {
+      "state": "CAMERA_LOST",
+      "label": "Mất kết nối camera",
+      "reason": "CAMERA_READ_FAILED"
+    },
+    {
+      "state": "OFFLINE",
+      "label": "Không kết nối",
+      "reason": "SESSION_STOPPED"
+    }
+  ]
+}

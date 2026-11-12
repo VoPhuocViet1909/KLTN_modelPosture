@@ -61,7 +61,10 @@ def test_state_transitions_and_events():
         assert rec.finished[0] == "video_end" and not rec.errors
         seq = [s["state"] for s in rec.states]
         order = [x for i, x in enumerate(seq) if i == 0 or x != seq[i - 1]]
-        assert order == ["CALIBRATING", "GOOD", "BAD", "GOOD"], order
+        assert order[:2] == ['CALIBRATING', 'UNKNOWN'], order
+        known = [state for state in order if state != 'UNKNOWN']
+        known = [state for i, state in enumerate(known) if i == 0 or state != known[i - 1]]
+        assert known == ["CALIBRATING", "GOOD", "BAD", "GOOD"], order
         kinds = [json.loads(l)["eventType"] for l in open(os.path.join(d, "ev.jsonl"), encoding="utf-8")]
         assert kinds[0] == "SESSION_START" and kinds[-1] == "SESSION_END", kinds
         assert "CALIBRATED" in kinds and "ALERT_STARTED" in kinds and "ALERT_RESOLVED" in kinds, kinds

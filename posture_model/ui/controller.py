@@ -107,6 +107,8 @@ class AppController(QObject):
         self._tasks = {}
         self._dialog = None
         self._engine_error = None
+        self._last_state_received = None
+        self._state_stale = False
         self._commands = None
         self._command_busy = False
         self._command_stop = threading.Event()
@@ -132,6 +134,10 @@ class AppController(QObject):
         self._command_timer.setInterval(15000)
         self._command_timer.timeout.connect(self._sync_commands)
         self._command_timer.start()
+        self._state_timer = QTimer(self)
+        self._state_timer.setInterval(1000)
+        self._state_timer.timeout.connect(self._check_state_freshness)
+        self._state_timer.start()
         self.notifier.notice.connect(self._on_notice)
         self.window.cameraRequested.connect(self.open_camera)
         self.window.loginClicked.connect(self.go_login)
@@ -202,6 +208,7 @@ class AppController(QObject):
     def _shutdown(self):
         self._leaving = True
         self._command_timer.stop()
+        self._state_timer.stop()
         self._command_stop.set()
         self._clear_notices()
         self.camera.hide()
@@ -335,6 +342,7 @@ class AppController(QObject):
         self.mode = mode
         self._leaving = False
         self._engine_error = None
+        self._last_state_received, self._state_stale = time.monotonic(), False
         self.window.btn_setup.setText("Thiết lập camera và máy chủ")
         self.engine = PostureEngine(opts, cfg=self.cfg, model_cfg=self.model_cfg, auth=auth, config_sync=config_sync,
                                     notifier=self.notifier, listener=self.bridge, iot=self.iot)
@@ -401,9 +409,21 @@ class AppController(QObject):
     def _on_state(self, s):
         if self._leaving or self.mode == "login":
             return
+        self._last_state_received, self._state_stale = time.monotonic(), False
         self.window.set_state(s)
         self.window.set_stream(s.get("stream") or {}, self.mode == "session")
         self.tray.set_state(s["state"])
+
+    def _check_state_freshness(self):
+        if (self.mode == 'login' or self._leaving or self.engine is None or self._engine_error
+                or self._last_state_received is None or self._state_stale):
+            return
+        if time.monotonic() - self._last_state_received > 3:
+            self._state_stale = True
+            self._clear_notices()
+            self.window.set_state(dict(state='UNKNOWN'))
+            self.window.hint.setText('Chưa nhận được dữ liệu mới từ camera. Kiểm tra camera hoặc chờ xử lý hoàn tất.')
+            self.tray.set_state('UNKNOWN')
 
     def _on_sync(self, info):
         if self._leaving or self.mode == "login":
@@ -415,7 +435,7 @@ class AppController(QObject):
     def _on_finished(self, reason, stats):
         self._clear_notices()
         if self.mode != "login" and not self._leaving:
-            self.window.set_state(dict(state="OFFLINE"))
+            self.window.set_state(dict(state='CAMERA_LOST' if reason == 'camera_lost' else 'OFFLINE'))
             self.window.set_stream({}, False)
             self.tray.set_state("OFFLINE")
             if self._engine_error:

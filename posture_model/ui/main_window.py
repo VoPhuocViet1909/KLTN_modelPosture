@@ -234,11 +234,15 @@ class MainWindow(QMainWindow):
             self.hint.setText("Không thấy bạn trước camera.")
         elif st == "OFFLINE":
             self.hint.setText("Camera chưa hoạt động.")
+        elif st == 'UNKNOWN':
+            self.hint.setText('Đang chờ đủ mẫu hợp lệ. Giữ người trong khung camera và kiểm tra góc nhìn.')
+        elif st == 'CAMERA_LOST':
+            self.hint.setText('Kiểm tra camera rồi chọn Kết nối lại / chọn camera.')
         elif skipped:
             self.hint.setText("Đang chạy không đo lệch vai và khoảng cách (đã bỏ qua camera laptop).")
         else:
             self.hint.setText("")
-        self.btn_recal.setVisible(st in ("GOOD", "BAD", "AWAY"))
+        self.btn_recal.setVisible(st in ("GOOD", "BAD", "AWAY", "UNKNOWN"))
         self.sit.setText(fmt_duration(s.get("sittingSec", 0)) if st not in ("OFFLINE",) else "00:00")
         d = s.get("distanceCm")
         self.dist.setText("Chưa đo" if d is None or st in ("OFFLINE", "CALIBRATING") else f"{d:.0f} cm")

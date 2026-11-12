@@ -58,6 +58,15 @@ def main():
     if output:
         dialog.grab().save(str(output / 'desktop-setup.png'))
     dialog.reject()
+    for state, label in [('UNKNOWN', 'Chưa đủ dữ liệu'), ('CAMERA_LOST', 'Mất kết nối camera')]:
+        window.set_state(dict(state=state))
+        app.processEvents()
+        assert window.badge.text.text() == label
+        assert window.hint.text()
+        if output:
+            from PySide6.QtTest import QTest
+            QTest.qWait(700)
+            window.grab().save(str(output / f'desktop-{state.lower()}.png'))
     window.hide()
     # Destroy widgets while QApplication is still alive, before Python teardown.
     dialog.deleteLater()

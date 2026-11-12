@@ -245,6 +245,16 @@ cần nghiệm thu riêng. Kiểm giả lập runnable: `python posture_model/te
 
 ## Bảo toàn dữ liệu và cảnh báo khi rời phiên
 
+### Trạng thái camera và tư thế — A1, 13/11/2026
+
+GUI đang đăng nhập dùng kết nối config-sync có sẵn để gửi `device-state` version 1. Chỉ giữ quan sát mới nhất trong RAM, bỏ mẫu quá 3 giây sau reconnect; heartbeat 5 giây, đổi trạng thái được gửi ở lượt worker kế tiếp (thường khoảng 1 giây). Không gửi lại lịch sử tư thế cũ như trạng thái trực tiếp. Notification thêm danh tính từ JWT và hạn dùng 15 giây; dashboard mới không suy GOOD từ SESSION_START hoặc trạng thái cảnh báo v1.
+
+Sau hiệu chỉnh, app chờ đủ cửa sổ mẫu hợp lệ và kết quả ngoài dải chưa chắc chắn trước khi hiển thị GOOD/BAD. Thiếu landmark chưa đủ căn cứ vắng mặt là UNKNOWN; AWAY vẫn theo bộ phát hiện hiện có. Lỗi đọc camera trả về vượt ngưỡng hiện có kết thúc phiên, cho kết nối lại/chọn camera, giữ các mục chờ trong outbox. Nếu engine không gửi trạng thái hơn 3 giây, giao diện hiện UNKNOWN và nhắc kiểm tra/chờ xử lý; đây chưa phải xác nhận driver bị treo hoặc cách ngắt an toàn driver.
+
+ESP32 hiện có chưa hỗ trợ UNKNOWN/CAMERA_LOST nên chỉ nhận OFFLINE trung tính cho hai trạng thái này. Không sửa firmware hoặc thay API IoT. Bản tin cuối khi dừng là best effort; nếu socket mất trước đó, dashboard tự hết hạn. CLI không bật config-sync vẫn chạy cục bộ/telemetry cũ, web sẽ thông báo thiếu trạng thái quan sát.
+
+Fixture chung tại `api_handover/device-observation-v1.json`. Kiểm bằng `test_observation.py`, `test_engine.py` và `test_ui_layout.py`; chưa thay cho camera thật/driver/bản exe.
+
 ### Lịch sử nghỉ/phản hồi trên máy — bước 11/A6
 
 Đang đăng nhập: mở **Nghỉ và phản hồi → Xem lịch sử trên máy**. Lịch sử đọc từ đĩa nên có thể xem khi mất mạng, miễn phiên vẫn còn trên ứng dụng. Đây không phải chế độ đăng nhập offline mới.
