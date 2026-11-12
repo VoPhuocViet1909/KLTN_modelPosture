@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, 
 
 import iot_config
 from iot_notifier import probe
+from live_stream import validate_rtsp_base
 from ui.bridge import Task
 from ui.camera_view import _qimage
 from ui.tokens import labels
@@ -18,6 +19,12 @@ from ui.widgets import ConnectionDot
 
 def preferences():
     return QSettings("KLTN", "PostureMonitor")
+
+
+def media_rtsp_base(settings, server, fallback='rtsp://127.0.0.1:8554'):
+    if settings.value('media_server') == str(server or '').strip().rstrip('/'):
+        return str(settings.value('media_rtsp_base', fallback))
+    return fallback
 
 
 def validate(side, front, server):
@@ -108,7 +115,17 @@ class SetupDialog(QDialog):
         if not server_editable:
             self.server.setToolTip("Đăng xuất trước khi đổi máy chủ.")
         form.addRow("Máy chủ", self.server)
+        self.media_rtsp = QLineEdit(media_rtsp_base(preferences(), self.server.text()))
+        self.media_rtsp.setAccessibleName('Địa chỉ máy chủ video RTSP')
+        self.media_rtsp.setMinimumHeight(44)
+        form.addRow('Máy chủ video', self.media_rtsp)
+        self.server.textEdited.connect(lambda: self.media_rtsp.setText(media_rtsp_base(preferences(), self.server.text())))
         lay.addLayout(form)
+        media_note = QLabel('Chỉ dùng khi bật chia sẻ camera. Cùng máy: rtsp://127.0.0.1:8554. '
+                            'Khác máy: điền địa chỉ máy chủ video đã được quản trị viên cấu hình.')
+        media_note.setWordWrap(True)
+        media_note.setObjectName('note')
+        lay.addWidget(media_note)
         previews = QHBoxLayout()
         self.images = []
         for text, hint in (("Camera hông", "Đặt ngang người khoảng 90°, thấy tai–vai–hông."),
@@ -311,6 +328,7 @@ class SetupDialog(QDialog):
     def save(self):
         try:
             values = self.values()
+            rtsp = validate_rtsp_base(self.media_rtsp.text().strip())
         except ValueError as e:
             self.error.setText(str(e))
             return
@@ -322,6 +340,8 @@ class SetupDialog(QDialog):
         settings = preferences()
         for key, value in zip(("side", "front", "server"), values):
             settings.setValue(key, value)
+        settings.setValue('media_server', values[2])
+        settings.setValue('media_rtsp_base', rtsp)
         settings.setValue("configured", True)
         settings.sync()
         if settings.status() != QSettings.NoError:

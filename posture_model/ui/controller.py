@@ -7,6 +7,7 @@ Vòng đời:  màn đăng nhập --đăng nhập / mở lại phiên đã nhớ
 import dataclasses
 import os
 import shutil
+import sqlite3
 import threading
 import time
 import json
@@ -15,7 +16,7 @@ import urllib.request
 from datetime import datetime, timezone, timedelta
 
 from PySide6.QtCore import QObject, Qt, QTimer, Slot
-from PySide6.QtWidgets import QApplication, QDialog, QFileDialog, QHBoxLayout, QLabel, QPushButton, QSystemTrayIcon, QVBoxLayout
+from PySide6.QtWidgets import QApplication, QDialog, QFileDialog, QHBoxLayout, QLabel, QMessageBox, QPushButton, QSystemTrayIcon, QVBoxLayout
 
 import iot_config
 import login_service
@@ -106,10 +107,14 @@ class AppController(QObject):
         self._tasks = {}
         self._dialog = None
         self._engine_error = None
+        self._last_state_received = None
+        self._state_stale = False
         self._commands = None
         self._command_busy = False
         self._command_stop = threading.Event()
         self._progress_dialog = None
+        self._telemetry_dialog = None
+        self._telemetry_path = None
 
         self.window = MainWindow()
         self.tray = TrayController()
@@ -127,10 +132,15 @@ class AppController(QObject):
         b.error.connect(self._on_error)
         b.alert.connect(self._remember_progress_episode)
         self.window.progressRequested.connect(self.show_progress)
+        self.window.telemetryRequested.connect(self.show_telemetry)
         self._command_timer = QTimer(self)
         self._command_timer.setInterval(15000)
         self._command_timer.timeout.connect(self._sync_commands)
         self._command_timer.start()
+        self._state_timer = QTimer(self)
+        self._state_timer.setInterval(1000)
+        self._state_timer.timeout.connect(self._check_state_freshness)
+        self._state_timer.start()
         self.notifier.notice.connect(self._on_notice)
         self.window.cameraRequested.connect(self.open_camera)
         self.window.loginClicked.connect(self.go_login)
@@ -201,6 +211,7 @@ class AppController(QObject):
     def _shutdown(self):
         self._leaving = True
         self._command_timer.stop()
+        self._state_timer.stop()
         self._command_stop.set()
         self._clear_notices()
         self.camera.hide()
@@ -248,6 +259,9 @@ class AppController(QObject):
         self._command_stop.set()
         if self._progress_dialog is not None:
             self._progress_dialog.close()
+        if self._telemetry_dialog is not None:
+            self._telemetry_dialog.close()
+        self._telemetry_path = None
         self.auth, self.remember, self.mode = None, False, "login"
         self.engine = self.thread = None
         self._leaving = False
@@ -307,10 +321,34 @@ class AppController(QObject):
 
     # ---------------------------------------------------------------- chạy engine
     def _user_outbox(self, auth):
-        """Mỗi tài khoản một outbox riêng (outbox-<userId>.db) để dữ liệu người này không chặn người kia."""
+        """Separate server/owner scopes; preserve legacy IDs and require explicit source linkage."""
+        from outbox import Outbox, scoped_path
         if self.opts.outbox != self.default_outbox:
             return self.opts.outbox
-        return os.path.join(os.path.dirname(self.default_outbox), f"outbox-{auth.user_id}.db")
+        directory = os.path.dirname(self.default_outbox)
+        target = scoped_path(directory, auth.base_url, auth.user_id)
+        legacy = os.path.join(directory, f'outbox-{auth.user_id}.db')
+        if os.path.exists(legacy) and not os.path.exists(target):
+            box = Outbox(legacy)
+            try:
+                try:
+                    box.bind(auth.base_url, auth.user_id)
+                    return legacy
+                except ValueError:
+                    context = box.db.execute('SELECT server,owner FROM outbox_context WHERE singleton=1').fetchone()
+                    if context is None:
+                        answer = QMessageBox.question(self.window, 'Dữ liệu từ phiên bản cũ',
+                            'Có dữ liệu cũ chưa ghi máy chủ nguồn. Chỉ chọn Có nếu dữ liệu thuộc máy chủ đang đăng nhập:\n'
+                            + auth.base_url + '\nGắn dữ liệu cũ với máy chủ này để tiếp tục gửi? Chọn Không sẽ giữ nguyên file cũ và tạo hộp dữ liệu riêng.',
+                            QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+                        if answer == QMessageBox.Yes:
+                            box.bind(auth.base_url, auth.user_id, allow_legacy=True)
+                            return legacy
+            except (ValueError, sqlite3.Error):
+                QMessageBox.warning(self.window, 'Giữ dữ liệu cũ', 'Chưa xác nhận được chủ sở hữu dữ liệu cũ. File cũ được giữ nguyên; phiên này dùng hộp dữ liệu riêng.')
+            finally:
+                box.close()
+        return target
 
     def _start_session(self, auth, remember):
         self.auth, self.remember = auth, remember
@@ -322,6 +360,7 @@ class AppController(QObject):
         except ImportError:
             print("Thiếu python-socketio: không đồng bộ cấu hình. Cài bằng pip install -r requirements.txt")
         opts = dataclasses.replace(self.opts, send=True, outbox=self._user_outbox(auth))
+        self._telemetry_path = opts.outbox
         self._run_engine(opts, auth, config_sync, "session")
         self.window.set_account(auth.email or auth.name)
 
@@ -331,9 +370,12 @@ class AppController(QObject):
         self.window.set_account(None)
 
     def _run_engine(self, opts, auth, config_sync, mode):
+        from ui.setup_view import media_rtsp_base, preferences
+        opts = dataclasses.replace(opts, stream_rtsp_base=media_rtsp_base(preferences(), self.base_url, opts.stream_rtsp_base))
         self.mode = mode
         self._leaving = False
         self._engine_error = None
+        self._last_state_received, self._state_stale = time.monotonic(), False
         self.window.btn_setup.setText("Thiết lập camera và máy chủ")
         self.engine = PostureEngine(opts, cfg=self.cfg, model_cfg=self.model_cfg, auth=auth, config_sync=config_sync,
                                     notifier=self.notifier, listener=self.bridge, iot=self.iot)
@@ -400,9 +442,21 @@ class AppController(QObject):
     def _on_state(self, s):
         if self._leaving or self.mode == "login":
             return
+        self._last_state_received, self._state_stale = time.monotonic(), False
         self.window.set_state(s)
         self.window.set_stream(s.get("stream") or {}, self.mode == "session")
         self.tray.set_state(s["state"])
+
+    def _check_state_freshness(self):
+        if (self.mode == 'login' or self._leaving or self.engine is None or self._engine_error
+                or self._last_state_received is None or self._state_stale):
+            return
+        if time.monotonic() - self._last_state_received > 3:
+            self._state_stale = True
+            self._clear_notices()
+            self.window.set_state(dict(state='UNKNOWN'))
+            self.window.hint.setText('Chưa nhận được dữ liệu mới từ camera. Kiểm tra camera hoặc chờ xử lý hoàn tất.')
+            self.tray.set_state('UNKNOWN')
 
     def _on_sync(self, info):
         if self._leaving or self.mode == "login":
@@ -414,7 +468,7 @@ class AppController(QObject):
     def _on_finished(self, reason, stats):
         self._clear_notices()
         if self.mode != "login" and not self._leaving:
-            self.window.set_state(dict(state="OFFLINE"))
+            self.window.set_state(dict(state='CAMERA_LOST' if reason == 'camera_lost' else 'OFFLINE'))
             self.window.set_stream({}, False)
             self.tray.set_state("OFFLINE")
             if self._engine_error:
@@ -460,6 +514,36 @@ class AppController(QObject):
             self._dialog.destroyed.connect(lambda *_: setattr(self, "_dialog", None))
             self._dialog.show()
 
+    def show_telemetry(self):
+        if not self.auth or self.mode != 'session' or self._leaving or not self._telemetry_path:
+            self.window.hint.setText('Đăng nhập và mở phiên theo dõi để xem dữ liệu trên máy.')
+            return
+        from telemetry_history import TelemetryHistory
+        from ui.telemetry_history import TelemetryHistoryDialog
+        if self._telemetry_dialog is not None:
+            self._telemetry_dialog.close()
+        auth = self.auth
+        history = TelemetryHistory(self._telemetry_path)
+        dialog = TelemetryHistoryDialog(history, auth, lambda state: self._export_telemetry(auth, state), self.window)
+        self._telemetry_dialog = dialog
+        dialog.show()
+
+    def _export_telemetry(self, auth, state):
+        dialog = self._telemetry_dialog
+        if self.auth is not auth or self._leaving or dialog is None or not dialog.isVisible() or not dialog.export.isEnabled():
+            return
+        path, _ = QFileDialog.getSaveFileName(dialog, 'Xuất tóm tắt dữ liệu trên máy', 'du-lieu-tren-may.json', 'JSON (*.json)')
+        if not path or self.auth is not auth or self._leaving or not dialog.isVisible():
+            return
+        dialog.exporting(True, 'Đang xuất tóm tắt…')
+        def done(count):
+            if self.auth is auth and dialog.isVisible():
+                dialog.exporting(False, f'Đã xuất {count} mục theo bộ lọc.')
+        def failed(error):
+            if self.auth is auth and dialog.isVisible():
+                dialog.exporting(False, 'Chưa xuất được file. Kiểm tra thư mục đích và dung lượng trống rồi thử lại.')
+        self._track(Task(lambda: dialog.history.export_history(auth, path, state)), done, failed)
+
     def _progress_queue(self):
         if self._commands is None:
             from command_outbox import CommandOutbox
@@ -492,7 +576,12 @@ class AppController(QObject):
         if self._progress_dialog is not None:
             self._progress_dialog.close()
         auth = self.auth
-        dialog = ProgressDialog(self._progress_queue(), auth, self.cfg['device_id'], self._sync_commands, self.window, self._resolve_commands)
+        try:
+            dialog = ProgressDialog(self._progress_queue(), auth, self.cfg['device_id'], self._sync_commands, self.window, self._resolve_commands,
+                                    lambda state: self._export_command_history(auth, state))
+        except (OSError, ValueError, sqlite3.Error):
+            self.window.hint.setText('Chưa đọc được lịch sử nghỉ/phản hồi. Kiểm tra dung lượng trống và quyền ghi trên máy rồi thử lại.')
+            return
         self._progress_dialog = dialog
         dialog.show()
         self._sync_commands()
@@ -516,6 +605,29 @@ class AppController(QObject):
                 dialog.goals.setText('Chưa lấy được mục tiêu. Bạn vẫn có thể ghi nhận nghỉ/phản hồi để gửi bù.')
 
         self._track(Task(read_goals), received, unavailable)
+
+    def _export_command_history(self, auth, state):
+        if self.auth is not auth or self.mode != 'session' or self._leaving:
+            return
+        dialog = self._progress_dialog
+        if dialog is None or not dialog.isVisible() or not dialog.history.export.isEnabled():
+            return
+        path, _ = QFileDialog.getSaveFileName(dialog, 'Xuất lịch sử nghỉ và phản hồi', 'lich-su-nghi-phan-hoi.json', 'JSON (*.json)')
+        if not path or self.auth is not auth or self._leaving or not dialog.isVisible():
+            return
+        history = dialog.history
+        history.exporting(True, 'Đang xuất lịch sử của tài khoản tại máy chủ này…')
+        queue = self._progress_queue()
+
+        def done(result):
+            if self.auth is auth and dialog.isVisible():
+                history.exporting(False, f'Đã xuất {result} thao tác. File chỉ chứa lịch sử nghỉ và phản hồi trên máy.')
+
+        def failed(error):
+            if self.auth is auth and dialog.isVisible():
+                history.exporting(False, 'Chưa xuất được file. Kiểm tra thư mục đích và dung lượng trống rồi thử lại.')
+
+        self._track(Task(lambda: queue.export_history(auth, path, state)), done, failed)
 
     def _resolve_commands(self):
         if not self.auth or self._command_busy:

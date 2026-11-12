@@ -201,7 +201,8 @@ class ApiSession:
         if not (personal_command or personal_goals) and (request.full_url, request.get_method()) not in (
                 (self.base_url + "/api/v1/telemetry/batch", "POST"),
                 (self.base_url + "/api/v1/auth/media-token", "POST"),
-                (self.base_url + "/api/v1/config/me", "GET")):
+                (self.base_url + "/api/v1/config/me", "GET"),
+                (self.base_url + "/api/v1/config/me/snapshot", "GET")):
             raise AuthError("Authenticated request outside session scope")
         token = self.token()
         request.add_header("Authorization", "Bearer " + token)

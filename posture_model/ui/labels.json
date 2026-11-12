@@ -5,7 +5,9 @@
     "BAD": {"label": "Đang ngồi sai", "icon": "triangle-alert"},
     "AWAY": {"label": "Vắng mặt", "icon": "moon"},
     "OFFLINE": {"label": "Không kết nối", "icon": "circle-off"},
-    "CALIBRATING": {"label": "Đang hiệu chỉnh", "icon": "rotate-cw"}
+    "CALIBRATING": {"label": "Đang hiệu chỉnh", "icon": "rotate-cw"},
+    "UNKNOWN": {"label": "Chưa đủ dữ liệu", "icon": "circle-off"},
+    "CAMERA_LOST": {"label": "Mất kết nối camera", "icon": "circle-off"}
   },
   "_evidence": "Nguồn lời nhắc theo mức (TaiLieu/KeHoach_LLM_TuVanSucKhoe.md mục 1): NECK_TRUNK S6, S3, S7; TOO_CLOSE S1; EYE_BREAK S4, S5; SIT_TOO_LONG S10, S12, S9, S7, S11. messages[mức] chọn theo level của sự kiện, message = câu mức 1.",
   "alert": {

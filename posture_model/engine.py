@@ -258,6 +258,7 @@ class PostureEngine:
     def stream_info(self):
         return dict(camera=self.stream.camera if self.stream else None,
                     state=self.stream.state if self.stream else "off", error=self.stream_error,
+                    deviceId=self.elog.device_id if getattr(self, 'elog', None) else None,
                     frontAvailable=self.cap_f is not None and not self._front_off)
 
     @property
@@ -382,9 +383,15 @@ class PostureEngine:
             return STATE_CALIBRATING
         if self.pres.away:
             return STATE_AWAY
+        if not getattr(self, '_neck_observed', False):
+            return 'UNKNOWN'
         if any(t.status in ("BAD", "CANH BAO") for t in self.trackers):
             return STATE_BAD
         return STATE_GOOD
+
+    def _observe(self, state):
+        if self.config_sync and hasattr(self.config_sync, 'observations'):
+            self.config_sync.observations.put(self.elog.device_id, self.elog.session_id, state)
 
     def _publish_sync(self):
         st = self.outbox.stats()
@@ -394,6 +401,7 @@ class PostureEngine:
                               lastError=self.sender.last_error,
                               authLost=bool(self.auth is not None and self.auth.lost),
                               lostKind=self.auth.lost_kind if self.auth is not None else None)
+        self.sync_info['configStatus'] = self.config_sync.status() if self.config_sync and hasattr(self.config_sync, 'status') else None
         self.listener.on_sync(self.sync_info)
 
     def _calib_payload(self, progress, cal_fail, now, front_available):
@@ -423,6 +431,7 @@ class PostureEngine:
             print("Engine lỗi:", e)
             self.listener.on_error(f"Lỗi khi xử lý: {e}")
         finally:
+            self._observe('CAMERA_LOST' if reason == 'camera_lost' else 'OFFLINE')
             stats = self._shutdown()
         self.finish_reason = reason
         self.listener.on_finished(reason, stats)
@@ -440,6 +449,7 @@ class PostureEngine:
         cal, side, f, base, tilt_base = self._start_calib(), None, None, None, None
         cal_fail, progress, last_prog = None, None, -1e9       # hiệu chỉnh không đạt: chờ vài giây rồi làm lại
         buf = collections.deque(maxlen=WIN)
+        valid_buf = collections.deque(maxlen=WIN)
         p_hist, t_hist, d_hist = (collections.deque(maxlen=5) for _ in range(3))     # median filter 5 kết quả
         p_med, t_med, d_med, ang, rula_lab = 0.0, np.nan, np.nan, None, None
         last_s = last_f = last_cfg = -1e9
@@ -448,6 +458,7 @@ class PostureEngine:
         side_missing = front_missing = None
         last_state_t = last_sync_t = -1e9
         last_state = last_stage = None
+        self._neck_observed = False
 
         while not self._stop.is_set():
             self._update_stream()
@@ -457,6 +468,10 @@ class PostureEngine:
                     return "video_end"
                 if side_missing is None:
                     side_missing = time.monotonic()
+                    self._neck_observed = False
+                    buf.clear(); valid_buf.clear()
+                    self._observe('UNKNOWN')
+                    self.listener.on_state(dict(state='UNKNOWN', stream=self.stream_info()))
                 if time.monotonic() - side_missing >= self.CAMERA_LOSS_SEC:
                     self.listener.on_error("Mất hình camera hông. Cắm lại camera, kiểm tra quyền camera và đóng ứng dụng đang dùng camera.")
                     return "camera_lost"
@@ -471,6 +486,8 @@ class PostureEngine:
                 if not use_video and not self._front_off and ff is None:
                     if front_missing is None:
                         front_missing = time.monotonic()
+                        self._observe('UNKNOWN')
+                        self.listener.on_state(dict(state='UNKNOWN', stream=self.stream_info()))
                     if time.monotonic() - front_missing >= self.CAMERA_LOSS_SEC:
                         self.listener.on_error("Mất hình camera trước. Cắm lại camera hoặc tắt camera trước trong thiết lập.")
                         return "camera_lost"
@@ -506,9 +523,11 @@ class PostureEngine:
                 last_cfg = now
                 changed = cfg.reload()
                 remote = self.config_sync.take() if self.config_sync else None
+                remote_ok = False
                 if remote is not None:
                     try:
                         changed |= cfg.apply_remote(remote)
+                        remote_ok = True
                     except ValueError:
                         print("Cấu hình máy chủ không hợp lệ; giữ cấu hình đang dùng")
                 if changed:
@@ -528,6 +547,8 @@ class PostureEngine:
                     self.listener.on_config(set(changed))
                     if self.iot is not None:
                         self.iot.on_config(set(changed), cfg)
+                if remote is not None and hasattr(self.config_sync, 'complete'):
+                    self.config_sync.complete(remote_ok)
 
             calibrating = base is None
             if calibrating:  # ======================================== hiệu chỉnh
@@ -541,6 +562,7 @@ class PostureEngine:
                     if cal["t0"] is None:
                         cal["t0"] = now
                     if sample_s:
+                        self._neck_observed = False
                         cal["n_s"] += 1
                     if sample_f:
                         cal["n_f"] += 1
@@ -597,7 +619,7 @@ class PostureEngine:
                               {k: round(v, 1) for k, v in base.items()},
                               "| lệch vai:", None if tilt_base is None else round(tilt_base, 1),
                               "| khoảng cách:", None if not np.isfinite(dist_base) else f"{dist_base:.0f} cm")
-                        buf.clear(); p_hist.clear(); t_hist.clear(); d_hist.clear()
+                        buf.clear(); valid_buf.clear(); p_hist.clear(); t_hist.clear(); d_hist.clear()
                         if rem.sit_start is None:
                             rem.start(now)
                 lc = max(left, 0)
@@ -616,7 +638,7 @@ class PostureEngine:
                             for t in trackers:
                                 pevs = pevs + t.reset(now, "AWAY")
                             rem.stop()
-                            buf.clear(); p_hist.clear(); t_hist.clear(); d_hist.clear()
+                            buf.clear(); valid_buf.clear(); p_hist.clear(); t_hist.clear(); d_hist.clear()
                         else:
                             rem.start(now)
                     emit(pevs)
@@ -624,6 +646,7 @@ class PostureEngine:
                 if not pres.away:
                     # ---- nhánh 1: cổ / thân
                     if sample_s:
+                        self._neck_observed = False
                         c = None
                         if Ls is not None:
                             c = apply_calibration(sequence_angles(Ls[None], side, f), base)
@@ -636,12 +659,14 @@ class PostureEngine:
                         else:
                             ang = rula_lab = None
                             buf.append(np.zeros(len(FEATURES), np.float32))
+                        valid_buf.append(c is not None)
                         if len(buf) == WIN:
                             logit = sess.run(None, {"x": np.stack(buf)[None]})[0][0]
                             p_hist.append(1 / (1 + np.exp(-logit)))
                             p_med = float(np.median(p_hist))
                             thr, hy = cfg["p_bad_threshold"], cfg["p_bad_hysteresis"]
                             bad = True if p_med >= thr + hy else False if p_med <= thr - hy else None
+                            self._neck_observed = all(valid_buf) and bad is not None
                             if ang:
                                 snap.update(neck=ang["neck"], trunk=ang["trunk"], headPitch=ang["head_pitch"])
                             snap.update(pBad=p_med, rulaB=None if rula_lab is None or not np.isfinite(rula_lab)
@@ -698,7 +723,7 @@ class PostureEngine:
 
             # ------------------------------------------------ phát cho giao diện
             wall = time.time()
-            st = self._posture_state(calibrating)
+            st = 'UNKNOWN' if front_missing else self._posture_state(calibrating)
             stage = None if not calibrating else ("failed" if cal_fail else "measuring")
             if st != last_state or stage != last_stage or wall - last_state_t >= self.STATE_EVERY:
                 last_state, last_stage, last_state_t = st, stage, wall
@@ -711,6 +736,7 @@ class PostureEngine:
                     frontSkipped=self._front_off, stream=self.stream_info(),
                     calib=self._calib_payload(progress, cal_fail, now, cap_f is not None) if calibrating else None)
                 self.listener.on_state(payload)
+                self._observe(st)
                 if self.iot is not None:
                     self.iot.on_state(payload)
             if wall - last_sync_t >= self.SYNC_EVERY:

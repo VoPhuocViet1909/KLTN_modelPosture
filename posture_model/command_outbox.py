@@ -3,6 +3,7 @@ import contextlib
 import json
 import os
 import sqlite3
+import tempfile
 import urllib.error
 import urllib.request
 import urllib.parse
@@ -29,6 +30,9 @@ class CommandOutbox:
                   server TEXT NOT NULL, owner TEXT NOT NULL, resource TEXT NOT NULL,
                   body TEXT NOT NULL, PRIMARY KEY(server,owner,resource));
             ''')
+            if 'created_at' not in {row[1] for row in db.execute('PRAGMA table_info(commands)')}:
+                db.execute('ALTER TABLE commands ADD COLUMN created_at TEXT')
+            db.execute('CREATE INDEX IF NOT EXISTS ix_commands_owner ON commands(server,owner,state,seq)')
 
     @contextlib.contextmanager
     def db(self):
@@ -55,8 +59,8 @@ class CommandOutbox:
         server, owner = self.identity(auth)
         body = {**body, 'operationId': str(uuid.uuid4())}
         with self.db() as db:
-            db.execute('INSERT INTO commands(operation,server,owner,resource,method,path,body) VALUES (?,?,?,?,?,?,?)',
-                       (body['operationId'], server, owner, resource, method, path, json.dumps(body, allow_nan=False)))
+            db.execute('INSERT INTO commands(operation,server,owner,resource,method,path,body,created_at) VALUES (?,?,?,?,?,?,?,?)',
+                       (body['operationId'], server, owner, resource, method, path, json.dumps(body, allow_nan=False), now()))
             db.execute('INSERT INTO local_resources VALUES (?,?,?,?) ON CONFLICT(server,owner,resource) DO UPDATE SET body=excluded.body',
                        (server, owner, resource, json.dumps(local)))
         return body['operationId']
@@ -109,6 +113,55 @@ class CommandOutbox:
         server, owner = self.identity(auth)
         with self.db() as db:
             return dict(db.execute('SELECT state,count(*) FROM commands WHERE server=? AND owner=? GROUP BY state', (server, owner)).fetchall())
+
+    def _history_scope(self, auth, state):
+        server, owner = self.identity(auth)
+        if state not in (None, 'pending', 'sent', 'failed', 'cancelled'):
+            raise ValueError('Trạng thái lịch sử không hợp lệ.')
+        return 'server=? AND owner=?' + (' AND state=?' if state else ''), (server, owner) + ((state,) if state else ())
+
+    @staticmethod
+    def _history_item(row):
+        return dict(operationId=row['operation'], resource=row['resource'], createdAt=row['created_at'],
+                    state=row['state'], error=row['error'], body=json.loads(row['body']))
+
+    def history(self, auth, state=None, page=0, size=25):
+        if type(page) is not int or page < 0 or type(size) is not int or not 1 <= size <= 100:
+            raise ValueError('Trang lịch sử không hợp lệ.')
+        scope, args = self._history_scope(auth, state)
+        with self.db() as db:
+            db.execute('BEGIN')
+            total = db.execute('SELECT count(*) FROM commands WHERE ' + scope, args).fetchone()[0]
+            items = [self._history_item(r) for r in db.execute('SELECT * FROM commands WHERE ' + scope + ' ORDER BY seq DESC LIMIT ? OFFSET ?', args + (size, page * size))]
+        return dict(items=items, total=total, page=page, size=size)
+
+    def export_history(self, auth, path, state=None):
+        """Export a consistent caller-scoped snapshot; replace the destination only on success."""
+        scope, args = self._history_scope(auth, state)
+        target = os.path.abspath(os.fspath(path))
+        if os.path.normcase(os.path.realpath(target)) in {os.path.normcase(os.path.realpath(self.path + suffix)) for suffix in ('', '-wal', '-shm', '-journal')}:
+            raise ValueError('Chọn file JSON khác với cơ sở dữ liệu đang dùng.')
+        temporary = None
+        try:
+            with self.db() as db:
+                db.execute('BEGIN')
+                total = db.execute('SELECT count(*) FROM commands WHERE ' + scope, args).fetchone()[0]
+                with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=os.path.dirname(target), delete=False) as output:
+                    temporary = output.name
+                    metadata = dict(formatVersion=1, exportedAt=now(), server=args[0], owner=args[1], state=state, total=total)
+                    output.write(json.dumps(metadata, ensure_ascii=False)[:-1] + ', "commands": [')
+                    for index, row in enumerate(db.execute('SELECT * FROM commands WHERE ' + scope + ' ORDER BY seq DESC', args)):
+                        if index:
+                            output.write(',')
+                        json.dump(self._history_item(row), output, ensure_ascii=False, allow_nan=False)
+                    output.write(']}\n')
+                    output.flush()
+                    os.fsync(output.fileno())
+            os.replace(temporary, target)
+            return total
+        finally:
+            if temporary is not None and os.path.exists(temporary):
+                os.unlink(temporary)
 
     def flush(self, auth, stop=None):
         server, owner = self.identity(auth)

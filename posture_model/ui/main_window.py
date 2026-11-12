@@ -26,6 +26,7 @@ class MainWindow(QMainWindow):
     setupRequested = Signal()
     streamRequested = Signal(object)
     progressRequested = Signal()
+    telemetryRequested = Signal()
 
     PAGE_LOGIN, PAGE_STATUS = 0, 1
 
@@ -133,6 +134,10 @@ class MainWindow(QMainWindow):
         self.account.setWordWrap(True)
         self.account.setIndent(20)
         left.addWidget(self.account)
+        self.config_status = QLabel()
+        self.config_status.setObjectName('note')
+        self.config_status.setWordWrap(True)
+        left.addWidget(self.config_status)
         self.btn_login = QPushButton("Đăng nhập")
         self.btn_login.setObjectName("link")
         self.btn_login.setToolTip("Đăng nhập để gửi dữ liệu lên máy chủ và xem trên web")
@@ -149,6 +154,10 @@ class MainWindow(QMainWindow):
         self.btn_progress.setMinimumHeight(44)
         self.btn_progress.clicked.connect(self.progressRequested)
         outer.addWidget(self.btn_progress)
+        self.btn_telemetry = QPushButton('Dữ liệu trên máy')
+        self.btn_telemetry.setMinimumHeight(44)
+        self.btn_telemetry.clicked.connect(self.telemetryRequested)
+        outer.addWidget(self.btn_telemetry)
         share = QFrame()
         share.setObjectName("panel")
         sl = QVBoxLayout(share)
@@ -172,6 +181,13 @@ class MainWindow(QMainWindow):
         self.stream_note.setObjectName("note")
         self.stream_note.setWordWrap(True)
         sl.addWidget(self.stream_note)
+        self.stream_device = QLabel()
+        self.stream_device.setObjectName('note')
+        self.stream_device.setTextFormat(Qt.PlainText)
+        self.stream_device.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.stream_device.setWordWrap(True)
+        self.stream_device.setAccessibleName('Mã thiết bị để xem camera trên web')
+        sl.addWidget(self.stream_device)
         privacy = QLabel("Chỉ tài khoản của bạn xem được. Không ghi hình.\nĐóng cửa sổ vẫn chia sẻ; bấm Dừng chia sẻ để dừng.")
         privacy.setObjectName("note")
         privacy.setWordWrap(True)
@@ -182,6 +198,7 @@ class MainWindow(QMainWindow):
         return page
 
     def set_stream(self, info, available):
+        self.stream_device.setText('Mã thiết bị trên web: ' + info['deviceId'] if available and info.get('deviceId') else '')
         camera = info.get("camera")
         self._sharing = bool(camera)
         self.btn_stream.setText("Dừng chia sẻ" if camera else "Bật chia sẻ")
@@ -234,11 +251,15 @@ class MainWindow(QMainWindow):
             self.hint.setText("Không thấy bạn trước camera.")
         elif st == "OFFLINE":
             self.hint.setText("Camera chưa hoạt động.")
+        elif st == 'UNKNOWN':
+            self.hint.setText('Đang chờ đủ mẫu hợp lệ. Giữ người trong khung camera và kiểm tra góc nhìn.')
+        elif st == 'CAMERA_LOST':
+            self.hint.setText('Kiểm tra camera rồi chọn Kết nối lại / chọn camera.')
         elif skipped:
             self.hint.setText("Đang chạy không đo lệch vai và khoảng cách (đã bỏ qua camera laptop).")
         else:
             self.hint.setText("")
-        self.btn_recal.setVisible(st in ("GOOD", "BAD", "AWAY"))
+        self.btn_recal.setVisible(st in ("GOOD", "BAD", "AWAY", "UNKNOWN"))
         self.sit.setText(fmt_duration(s.get("sittingSec", 0)) if st not in ("OFFLINE",) else "00:00")
         d = s.get("distanceCm")
         self.dist.setText("Chưa đo" if d is None or st in ("OFFLINE", "CALIBRATING") else f"{d:.0f} cm")
@@ -249,6 +270,8 @@ class MainWindow(QMainWindow):
 
     def set_sync(self, info):
         self.conn.set_info(info)
+        from config_sync import config_status_text
+        self.config_status.setText(config_status_text(info.get('configStatus')) if info and info.get('hasServer') else '')
 
     def show_notice(self, alert_type, title, body):
         self.banner.show_alert(alert_type, title, body)

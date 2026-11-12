@@ -1,15 +1,23 @@
 """Personal rest/feedback controls. Disk enqueue happens before any network work."""
-from PySide6.QtWidgets import QComboBox, QDialog, QFormLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout, QMessageBox
+import sqlite3
+from PySide6.QtWidgets import QComboBox, QDialog, QFormLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout, QMessageBox, QScrollArea, QWidget
 from PySide6.QtCore import Qt
 
 
 class ProgressDialog(QDialog):
-    def __init__(self, queue, auth, device, sync, parent=None, resolve=None):
+    def __init__(self, queue, auth, device, sync, parent=None, resolve=None, export=None):
         super().__init__(parent)
         self.queue, self.auth, self.device, self.sync = queue, auth, device, sync
         self.setWindowTitle('Nghỉ và phản hồi')
         self.setMinimumWidth(400)
-        layout = QVBoxLayout(self)
+        self.resize(680, 780)
+        outer = QVBoxLayout(self)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        content = QWidget()
+        scroll.setWidget(content)
+        outer.addWidget(scroll)
+        layout = QVBoxLayout(content)
         device_label = QLabel('Thiết bị: ' + device)
         device_label.setTextFormat(Qt.PlainText)
         device_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
@@ -63,9 +71,21 @@ class ProgressDialog(QDialog):
         self.recover = QPushButton('Bỏ thao tác bị từ chối và tải lại')
         self.recover.clicked.connect(lambda: resolve() if resolve and QMessageBox.question(self, 'Xử lý xung đột', 'Bỏ các thao tác chưa gửi thuộc chuỗi đã bị từ chối và lấy lại trạng thái từ máy chủ? Các thao tác đã được máy chủ nhận vẫn giữ nguyên.') == QMessageBox.Yes else None)
         layout.addWidget(self.recover)
+        history_button = QPushButton('Xem lịch sử trên máy')
+        history_button.setCheckable(True)
+        history_button.setMinimumHeight(44)
+        layout.addWidget(history_button)
+        from ui.command_history import CommandHistory
+        self.history = CommandHistory(queue, auth, export or (lambda state: None), sync, content)
+        self.history.export.setEnabled(export is not None)
+        self.history.setVisible(False)
+        history_button.toggled.connect(self.history.setVisible)
+        history_button.toggled.connect(lambda shown: self.history.refresh() if shown else None)
+        layout.addWidget(self.history)
         close = QPushButton('Đóng')
         close.clicked.connect(self.close)
-        layout.addWidget(close)
+        close.setMinimumHeight(44)
+        outer.addWidget(close)
         self.refresh()
 
     def refresh(self):
@@ -77,6 +97,8 @@ class ProgressDialog(QDialog):
         counts = self.queue.stats(self.auth)
         self.recover.setEnabled(bool(counts.get('failed')))
         self.status.setText(f"Chờ gửi: {counts.get('pending', 0)} · Đã gửi: {counts.get('sent', 0)} · Cần xử lý: {counts.get('failed', 0)}" + ('\nCó thao tác bị từ chối; xem lại lịch sử trên web trước khi thao tác tiếp.' if counts.get('failed', 0) else ''))
+        if self.history.isVisible():
+            self.history.refresh()
 
     def act(self, action):
         try:
@@ -85,6 +107,8 @@ class ProgressDialog(QDialog):
             self.sync()
         except (ValueError, OSError) as error:
             self.status.setText(str(error))
+        except sqlite3.Error:
+            self.status.setText('Chưa lưu được thao tác. Kiểm tra dung lượng trống và quyền ghi rồi thử lại.')
 
     def feedback(self):
         if self.reason.currentData() == 'OTHER' and not self.note.text().strip():
@@ -96,3 +120,5 @@ class ProgressDialog(QDialog):
             self.sync()
         except (ValueError, OSError) as error:
             self.status.setText(str(error))
+        except sqlite3.Error:
+            self.status.setText('Chưa lưu được phản hồi. Kiểm tra dung lượng trống và quyền ghi rồi thử lại.')

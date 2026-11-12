@@ -262,6 +262,8 @@ class IotNotifier:
             if not self.enabled:
                 return
             state, now = st["state"], self._clock()
+            if state in ('UNKNOWN', 'CAMERA_LOST'):
+                state = 'OFFLINE'  # Existing ESP32 firmware has no observation-state extension.
             if state == self._last_state and now - self._last_state_t < self.cfg["status_every_sec"]:
                 return
             self._last_state, self._last_state_t = state, now

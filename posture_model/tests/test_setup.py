@@ -7,7 +7,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import numpy as np
-from PySide6.QtCore import QSettings, QTimer
+from PySide6.QtCore import QCoreApplication, QEvent, QSettings, QTimer
 from PySide6.QtWidgets import QApplication
 import iot_config
 import ui.setup_view as setup
@@ -57,6 +57,7 @@ def main():
         assert dialog.result_values == ("0", "-1", "http://localhost:8080")
         assert setup.preferences().value("side") == "0"
         assert setup.preferences().value("configured", type=bool)
+        saved_dialog = dialog
         dialog = setup.SetupDialog("0", "-1", "http://localhost:8080", server_editable=False)
         original = setup.snapshots
         setup.snapshots = lambda a, b: original(a, b, Capture)
@@ -72,6 +73,7 @@ def main():
         QTimer.singleShot(5000, app.quit)
         app.exec()
         assert not dialog.task.isRunning()
+        assert dialog.task.wait(5000)
         app.processEvents()
         assert not dialog.images[0].pixmap().isNull()
         assert dialog.images[1].text() == "Camera trước đã tắt"
@@ -122,8 +124,13 @@ def main():
         ctl._on_error("Lỗi cũ")
         assert ctl.window.hint.text() == previous
         ctl.app.aboutToQuit.disconnect(ctl._shutdown)
-        ctl.window.deleteLater()
-        ctl.camera.deleteLater()
+        ctl._shutdown()
+        # Destroy Qt objects while QApplication is alive, before Python teardown.
+        for widget in (saved_dialog, dialog, ctl.window, ctl.camera, ctl.tray, ctl.tray.menu):
+            widget.deleteLater()
+        ctl.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+    app.shutdown()
     print("PASS: validation, release on failure, optional front, persistence, async preview")
 
 
