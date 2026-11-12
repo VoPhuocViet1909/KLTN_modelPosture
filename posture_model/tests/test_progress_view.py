@@ -4,6 +4,7 @@ from pathlib import Path
 import sys
 import tempfile
 from types import SimpleNamespace
+from unittest.mock import patch
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from PySide6.QtCore import QCoreApplication, QEvent
@@ -22,9 +23,12 @@ def main():
         synced = []
         dialog = ProgressDialog(queue, auth, 'device', lambda: synced.append(True))
         assert dialog.buttons['START'].isEnabled() and not dialog.buttons['COMPLETE'].isEnabled()
-        dialog.act('START')
+        with patch('command_outbox.now', return_value='2026-11-12T00:00:00+00:00'):
+            dialog.act('START')
         assert dialog.buttons['COMPLETE'].isEnabled() and not dialog.buttons['START'].isEnabled()
-        dialog.act('COMPLETE')
+        with patch('command_outbox.now', return_value='2026-11-12T00:05:00+00:00'):
+            dialog.act('COMPLETE')
+        assert queue.resources(auth, 'break/')[0]['state'] == 'COMPLETED'
         dialog.reason.setCurrentIndex(dialog.reason.findData('OTHER'))
         dialog.feedback()
         assert queue.stats(auth)['pending'] == 2, 'OTHER requires a note before enqueue'
