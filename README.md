@@ -1,5 +1,7 @@
 # KLTN_modelPosture
 
+Truyền hình lên dashboard, nhánh `feat/live-camera-setup` (13/11/2026): mở Thiết lập → Máy chủ video để lưu địa chỉ RTSP cho backend hiện tại; bật chia sẻ trong app, sao chép mã thiết bị hiển thị rồi dùng trên web. Cùng máy giữ `rtsp://127.0.0.1:8554`; khác máy cần MediaMTX/mạng được cấu hình trước. Xem [hướng dẫn camera](api_handover/live-camera.md). Mặc định không chia sẻ; không có video outbox hoặc ghi hình. Chưa đóng gói lại exe.
+
 Nhánh `feat/device-observation` (A1, 13/11/2026) phân biệt hiệu chỉnh/chưa đủ mẫu/mất camera, gửi quan sát còn mới qua Socket.IO sẵn có và hiển thị UNKNOWN nếu quá 3 giây không nhận trạng thái engine. Kết nối lại vẫn hiệu chỉnh và giữ outbox như trước. Không đổi model hoặc telemetry v1.5; backend/web phải cùng hỗ trợ luồng mới. Có kiểm video giả, Qt offscreen và mock; chưa kiểm webcam, driver treo hoặc exe mới.
 
 Nhánh `feat/software-expansion-m1`: thêm **Nghỉ và phản hồi**, hộp thư REST lưu riêng theo owner/server và timing tùy chọn (mặc định tắt). Đã kiểm local/mock/offscreen; chưa kiểm backend/webcam thật. Kế hoạch kiểm lại ở repo backend `docs/software-expansion-v1/RETEST-M1.md`.

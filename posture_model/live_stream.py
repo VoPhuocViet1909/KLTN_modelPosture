@@ -15,13 +15,26 @@ import urllib.parse
 import urllib.request
 
 
+def validate_rtsp_base(value):
+    """A media-server origin, never a camera path or a credential-bearing URL."""
+    try:
+        if not isinstance(value, str) or any(c.isspace() for c in value):
+            raise ValueError()
+        base = urllib.parse.urlsplit(value)
+        port = base.port
+        if (base.scheme != 'rtsp' or not base.hostname or base.username or base.password or base.query
+                or base.fragment or base.path not in ('', '/') or port is not None and not 1 <= port <= 65535):
+            raise ValueError()
+    except ValueError:
+        raise ValueError('Nhập máy chủ video như rtsp://192.168.1.10:8554, không kèm tài khoản, đường dẫn hay token.') from None
+    return value.rstrip('/')
+
+
 class LivePublisher:
     def __init__(self, config, device_id, camera, rtsp_base, ffmpeg="ffmpeg", auth=None):
         if camera not in ("side", "front") or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}", device_id):
             raise ValueError("Invalid camera or device ID")
-        base = urllib.parse.urlsplit(rtsp_base)
-        if base.scheme != "rtsp" or not base.hostname or base.username or base.password or base.query or base.fragment or base.path not in ("", "/"):
-            raise ValueError("Use an RTSP base without credentials, path or query")
+        rtsp_base = validate_rtsp_base(rtsp_base)
         self.ffmpeg = shutil.which(ffmpeg)
         if not self.ffmpeg:
             raise ValueError("FFmpeg is required when live streaming is enabled")

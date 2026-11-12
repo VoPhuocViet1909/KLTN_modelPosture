@@ -339,6 +339,8 @@ class AppController(QObject):
         self.window.set_account(None)
 
     def _run_engine(self, opts, auth, config_sync, mode):
+        from ui.setup_view import media_rtsp_base, preferences
+        opts = dataclasses.replace(opts, stream_rtsp_base=media_rtsp_base(preferences(), self.base_url, opts.stream_rtsp_base))
         self.mode = mode
         self._leaving = False
         self._engine_error = None

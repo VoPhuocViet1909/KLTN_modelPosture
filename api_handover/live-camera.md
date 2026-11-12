@@ -103,3 +103,16 @@ Bản nguồn `feat/desktop-camera-sharing`: đăng nhập → hiệu chỉnh �
 chọn thiết bị/góc và **Xem camera**. **Dừng chia sẻ** giữ giám sát tư thế. Đăng xuất/thoát/đổi
 thiết lập dừng publisher, phiên mới mặc định tắt. Đóng cửa sổ xuống khay vẫn tiếp tục chia sẻ.
 Camera trước phải đang hoạt động. CLI phía dưới vẫn dùng được. Portable cũ chưa có nút mới.
+# Bổ sung cách dùng GUI — 13/11/2026
+
+Luồng video v1 bên dưới đã có trong dự án. Nhánh `feat/live-camera-setup` bổ sung cấu hình và hướng dẫn dùng trực tiếp từ desktop/dashboard:
+
+1. Chạy source `posture_model/app.py`, đăng nhập cùng tài khoản sẽ dùng trên web.
+2. Vào **Thiết lập camera và máy chủ** → **Máy chủ video**. Cùng máy dùng `rtsp://127.0.0.1:8554`; khác máy nhập địa chỉ MediaMTX đã cấu hình, ví dụ `rtsp://192.168.1.20:8554`. Không nhập đường dẫn camera hoặc token vào ô này.
+3. Lưu và tiếp tục; chọn camera hông/trước trong **Chia sẻ camera lên web**, bấm **Bật chia sẻ**. Mã thiết bị hiển thị tại đây và có thể bôi chọn để sao chép.
+4. Trên dashboard → Tổng quan → Camera của bạn, chọn thiết bị hoặc nhập mã nếu chưa có trong danh sách, chọn cùng góc và bấm **Xem camera**.
+5. **Dừng camera** trên web dừng xem; **Dừng chia sẻ** trên desktop dừng gửi. Đóng cửa sổ desktop xuống khay vẫn chia sẻ như trước; đăng xuất dừng publisher.
+
+Địa chỉ video lưu trong QSettings gắn với URL API tương ứng; đổi API không tự dùng địa chỉ video của server cũ. Khi đã đăng nhập có thể sửa máy chủ video, nhưng địa chỉ API vẫn khóa theo phiên như trước. Trường RTSP dùng cùng validator với LivePublisher, từ chối tài khoản/password/query/path/port sai. Không bật camera hoặc gửi video chỉ vì lưu địa chỉ.
+
+MediaMTX, API và đường ICE phải hoạt động. Web dùng VITE_MEDIA_BASE_URL nếu đã cấu hình, mặc định cùng hostname web tại cổng 8889. HTTPS cần media HTTPS. Hướng dẫn cấu hình và kiểm thật tại BE `docs/live-camera-dashboard-setup.md`; không suy kiểm hai máy/LAN từ test loopback. Đợt này kiểm 19 script, bounded queue và browser media giả lập; chưa khởi động media/webcam thật hoặc Docker.

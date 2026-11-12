@@ -172,6 +172,13 @@ class MainWindow(QMainWindow):
         self.stream_note.setObjectName("note")
         self.stream_note.setWordWrap(True)
         sl.addWidget(self.stream_note)
+        self.stream_device = QLabel()
+        self.stream_device.setObjectName('note')
+        self.stream_device.setTextFormat(Qt.PlainText)
+        self.stream_device.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.stream_device.setWordWrap(True)
+        self.stream_device.setAccessibleName('Mã thiết bị để xem camera trên web')
+        sl.addWidget(self.stream_device)
         privacy = QLabel("Chỉ tài khoản của bạn xem được. Không ghi hình.\nĐóng cửa sổ vẫn chia sẻ; bấm Dừng chia sẻ để dừng.")
         privacy.setObjectName("note")
         privacy.setWordWrap(True)
@@ -182,6 +189,7 @@ class MainWindow(QMainWindow):
         return page
 
     def set_stream(self, info, available):
+        self.stream_device.setText('Mã thiết bị trên web: ' + info['deviceId'] if available and info.get('deviceId') else '')
         camera = info.get("camera")
         self._sharing = bool(camera)
         self.btn_stream.setText("Dừng chia sẻ" if camera else "Bật chia sẻ")

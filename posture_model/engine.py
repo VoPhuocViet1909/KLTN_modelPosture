@@ -258,6 +258,7 @@ class PostureEngine:
     def stream_info(self):
         return dict(camera=self.stream.camera if self.stream else None,
                     state=self.stream.state if self.stream else "off", error=self.stream_error,
+                    deviceId=self.elog.device_id if getattr(self, 'elog', None) else None,
                     frontAvailable=self.cap_f is not None and not self._front_off)
 
     @property
