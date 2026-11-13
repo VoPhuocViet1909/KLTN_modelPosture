@@ -21,6 +21,7 @@ from PySide6.QtWidgets import QApplication, QDialog, QFileDialog, QHBoxLayout, Q
 import iot_config
 import login_service
 from api_session import AuthError
+from alerts import machine_device_id
 from engine import APP_DIR, EngineOptions, PostureEngine, load_config
 from iot_notifier import IotNotifier
 from ui import icons
@@ -115,6 +116,8 @@ class AppController(QObject):
         self._progress_dialog = None
         self._telemetry_dialog = None
         self._telemetry_path = None
+        self._workspace_dialog = None
+        self._workspace_selection = dict(workspaceId=None, name='Chưa gán vị trí')
 
         self.window = MainWindow()
         self.tray = TrayController()
@@ -133,6 +136,7 @@ class AppController(QObject):
         b.alert.connect(self._remember_progress_episode)
         self.window.progressRequested.connect(self.show_progress)
         self.window.telemetryRequested.connect(self.show_telemetry)
+        self.window.workspaceRequested.connect(self.show_workspace)
         self._command_timer = QTimer(self)
         self._command_timer.setInterval(15000)
         self._command_timer.timeout.connect(self._sync_commands)
@@ -183,18 +187,25 @@ class AppController(QObject):
         if self._leaving or any(t.isRunning() for t in self._tasks):
             return
         mode = self.mode
+        camera_opts = getattr(self.engine, 'o', self.opts)
         self.window.btn_setup.setEnabled(False)
 
         def configure():
             from ui.setup_view import SetupDialog
             self.camera.hide()
-            dialog = SetupDialog(self.opts.side, self.opts.front, self.base_url, self.window,
+            dialog = SetupDialog(camera_opts.side, camera_opts.front, self.base_url, self.window,
                                  server_editable=mode != "session", iot=self.iot)
             if dialog.exec() == SetupDialog.Accepted:
                 side, front, server = dialog.result_values
                 self.opts = dataclasses.replace(self.opts, side=side, front=front,
                                                 side_video=None, front_video=None)
                 self.cfg.values["api_base_url"] = server
+                if mode == 'session' and self.auth:
+                    from alerts import machine_device_id
+                    try:
+                        self._workspace_profiles().save_cameras(self.auth, machine_device_id(), self._workspace_selection['workspaceId'], side, front, self.cfg.profile)
+                    except (OSError, ValueError, sqlite3.Error):
+                        self.window.hint.setText('Chưa lưu được lựa chọn camera theo vị trí. Kiểm tra quyền ghi trước khi thiết lập lại.')
             self._leaving = False
             self.window.btn_setup.setEnabled(True)
             if mode == "session":
@@ -261,7 +272,11 @@ class AppController(QObject):
             self._progress_dialog.close()
         if self._telemetry_dialog is not None:
             self._telemetry_dialog.close()
+        if self._workspace_dialog is not None:
+            self._workspace_dialog.close()
         self._telemetry_path = None
+        self._workspace_selection = dict(workspaceId=None, name='Chưa gán vị trí')
+        self.cfg.apply_profile({})
         self.auth, self.remember, self.mode = None, False, "login"
         self.engine = self.thread = None
         self._leaving = False
@@ -361,6 +376,23 @@ class AppController(QObject):
         except ImportError:
             print("Thiếu python-socketio: không đồng bộ cấu hình. Cài bằng pip install -r requirements.txt")
         opts = dataclasses.replace(self.opts, send=True, outbox=self._user_outbox(auth))
+        from alerts import machine_device_id
+        from workspace_profiles import CAMERA_DEFAULTS
+        self.cfg.apply_profile(CAMERA_DEFAULTS)
+        try:
+            profiles = self._workspace_profiles()
+            selected = profiles.selection(auth, machine_device_id())
+            cameras = profiles.cameras(auth, machine_device_id(), selected['workspaceId'])
+            if cameras:
+                self.cfg.apply_profile(cameras['settings'])
+                opts = dataclasses.replace(opts, side=cameras['side'], front=cameras['front'])
+            elif not opts.side_video and not opts.front_video:
+                profiles.save_cameras(auth, machine_device_id(), selected['workspaceId'], opts.side, opts.front, CAMERA_DEFAULTS)
+            self._workspace_selection = selected
+            opts = dataclasses.replace(opts, workspace_id=selected['workspaceId'], workspace_name=selected['name'], workspace_db=profiles.path)
+        except (OSError, ValueError, KeyError, sqlite3.Error):
+            self._workspace_selection = dict(workspaceId=None, name='Chưa đọc được hồ sơ trên máy')
+            self.window.hint.setText('Chưa đọc được hồ sơ camera. Phiên này dùng cấu hình mặc định và đo lại; kiểm tra quyền đọc/ghi trên máy.')
         self._telemetry_path = opts.outbox
         self._run_engine(opts, auth, config_sync, "session")
         self.window.set_account(auth.email or auth.name)
@@ -368,6 +400,7 @@ class AppController(QObject):
     def _on_local(self):
         """'Dùng không đăng nhập': chỉ nhắc tại chỗ, không ghi outbox, không gửi gì."""
         self.notifier.policy.reset()
+        self.cfg.apply_profile({})
         self._run_engine(dataclasses.replace(self.opts, send=False), None, None, "local")
         self.window.set_account(None)
 
@@ -503,7 +536,7 @@ class AppController(QObject):
             return
         if self.auth and alert_type in ('SIT_TOO_LONG', 'EYE_BREAK') and self._commands is not None:
             for record in self._commands.resources(self.auth, 'break/'):
-                if record['deviceId'] == self.cfg['device_id'] and (record['state'] == 'IN_PROGRESS' or
+                if record['deviceId'] == machine_device_id() and (record['state'] == 'IN_PROGRESS' or
                         record['state'] == 'SNOOZED' and record.get('snoozeUntil') and datetime.fromisoformat(record['snoozeUntil']) > datetime.now(timezone.utc)):
                     return
         self.window.show_notice(alert_type, title, body)
@@ -516,6 +549,70 @@ class AppController(QObject):
             self._dialog = AlertDialog(alert_type, title, body)
             self._dialog.destroyed.connect(lambda *_: setattr(self, "_dialog", None))
             self._dialog.show()
+
+    def _workspace_profiles(self):
+        from workspace_profiles import WorkspaceProfiles
+        return WorkspaceProfiles(os.path.join(os.path.dirname(self.default_outbox), 'workspace-profiles.db'))
+
+    def show_workspace(self):
+        if not self.auth or self.mode != 'session' or self._leaving:
+            self.window.hint.setText('Đăng nhập để chọn hồ sơ vị trí của máy này.')
+            return
+        from ui.workspace_view import WorkspaceDialog
+        from alerts import machine_device_id
+        if self._workspace_dialog is not None:
+            self._workspace_dialog.close()
+        self._workspace_dialog = WorkspaceDialog(machine_device_id(), self._workspace_selection, self._apply_workspace, self._load_workspaces, self.window)
+        self._workspace_dialog.show()
+        self._load_workspaces()
+
+    def _load_workspaces(self):
+        auth, dialog = self.auth, self._workspace_dialog
+        if auth is None or dialog is None or not dialog.isVisible() or self._leaving:
+            return
+        from workspace_profiles import choices
+        from alerts import machine_device_id
+        dialog.working(True, 'Đang lấy hồ sơ trên server…')
+        def done(data):
+            if self.auth is auth and dialog.isVisible() and not self._leaving:
+                dialog.set_data(data)
+        def failed(error):
+            if self.auth is auth and dialog.isVisible():
+                dialog.working(False, 'Chưa lấy được hồ sơ. Kiểm tra kết nối/backend đã cập nhật rồi tải lại; hồ sơ trên máy đang dùng vẫn giữ nguyên.')
+        self._track(Task(lambda: choices(auth, machine_device_id())), done, failed)
+
+    def _apply_workspace(self):
+        auth, dialog = self.auth, self._workspace_dialog
+        if auth is None or dialog is None or not dialog.isVisible() or self._leaving or not dialog.apply.isEnabled():
+            return
+        from workspace_profiles import request
+        from alerts import machine_device_id
+        key, body = dialog.payload()
+        name = dialog.choice.currentText()
+        dialog.working(True, 'Đang lưu hồ sơ; phiên camera hiện tại chưa thay đổi…')
+        def done(result):
+            if self.auth is not auth or not dialog.isVisible() or self._leaving:
+                return
+            if (not isinstance(result, dict) or result.get('deviceId') != machine_device_id()
+                    or result.get('workspaceId') != body['workspaceId'] or result.get('deviceKey') != key
+                    or result.get('version') != body['expectedVersion'] + 1 or result.get('status') != 'ACTIVE'):
+                failed(ValueError('Workspace receipt mismatch'))
+                return
+            dialog.close()
+            def restart():
+                if self.auth is not auth:
+                    return
+                try:
+                    self._workspace_profiles().select(auth, machine_device_id(), body['workspaceId'], name)
+                except (OSError, ValueError, sqlite3.Error):
+                    self.window.hint.setText('Server đã lưu nhưng chưa ghi được hồ sơ trên máy. Giữ hồ sơ cũ; kiểm tra quyền ghi rồi chọn lại.')
+                self._leaving = False
+                self._start_session(auth, self.remember)
+            self._stop_engine(restart)
+        def failed(error):
+            if self.auth is auth and dialog.isVisible():
+                dialog.working(False, 'Chưa xác nhận lưu được. Phiên camera vẫn giữ; thử lại cùng lựa chọn hoặc tải lại hồ sơ nếu bị xung đột.')
+        self._track(Task(lambda: request(auth, f'devices/{key}', body)), done, failed)
 
     def show_telemetry(self):
         if not self.auth or self.mode != 'session' or self._leaving or not self._telemetry_path:
@@ -580,7 +677,7 @@ class AppController(QObject):
             self._progress_dialog.close()
         auth = self.auth
         try:
-            dialog = ProgressDialog(self._progress_queue(), auth, self.cfg['device_id'], self._sync_commands, self.window, self._resolve_commands,
+            dialog = ProgressDialog(self._progress_queue(), auth, machine_device_id(), self._sync_commands, self.window, self._resolve_commands,
                                     lambda state: self._export_command_history(auth, state))
         except (OSError, ValueError, sqlite3.Error):
             self.window.hint.setText('Chưa đọc được lịch sử nghỉ/phản hồi. Kiểm tra dung lượng trống và quyền ghi trên máy rồi thử lại.')

@@ -7,6 +7,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
+import re
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -198,7 +199,9 @@ class ApiSession:
             or parsed.path.startswith('/api/v1/alerts/me/feedback/') and request.get_method() == 'PUT'
             and self._feedback_path(parsed.path))
         personal_goals = (parsed.scheme, parsed.netloc) == (base.scheme, base.netloc) and parsed.path in ('/api/v1/config/me/goals', '/api/v1/alerts/me/breaks', '/api/v1/alerts/me/feedback') and request.get_method() == 'GET'
-        if not (personal_command or personal_goals) and (request.full_url, request.get_method()) not in (
+        personal_workspace = ((parsed.scheme, parsed.netloc) == (base.scheme, base.netloc)
+                              and self._workspace_request(parsed, request.get_method()))
+        if not (personal_command or personal_goals or personal_workspace) and (request.full_url, request.get_method()) not in (
                 (self.base_url + "/api/v1/telemetry/batch", "POST"),
                 (self.base_url + "/api/v1/auth/media-token", "POST"),
                 (self.base_url + "/api/v1/config/me", "GET"),
@@ -215,6 +218,29 @@ class ApiSession:
             error.close()
         request.add_header("Authorization", "Bearer " + self.token(rejected=token))
         return self._opener.open(request, timeout=timeout)
+
+    @staticmethod
+    def _workspace_request(parsed, method):
+        if parsed.fragment:
+            return False
+        path = parsed.path.removeprefix('/api/v1/config/me/')
+        if parsed.path == '/api/v1/config/me/workspaces' and method == 'GET':
+            query = urllib.parse.parse_qs(parsed.query, keep_blank_values=True)
+            return set(query) <= {'page','size'} and all(len(v) == 1 and v[0].isdigit() for v in query.values())
+        if parsed.path == '/api/v1/config/me/devices/current' and method == 'GET':
+            query = urllib.parse.parse_qs(parsed.query, keep_blank_values=True)
+            return set(query) == {'deviceId'} and len(query['deviceId']) == 1 and re.fullmatch('[A-Za-z0-9][A-Za-z0-9_-]{0,127}', query['deviceId'][0]) is not None
+        if parsed.query or not parsed.path.startswith('/api/v1/config/me/'):
+            return False
+        parts = path.split('/')
+        if len(parts) not in (2,3) or parts[0] != 'devices':
+            return False
+        try:
+            if str(uuid.UUID(parts[1])) != parts[1]:
+                return False
+        except ValueError:
+            return False
+        return len(parts) == 2 and method == 'PUT' or len(parts) == 3 and parts[2] == 'heartbeat' and method == 'POST'
 
     @staticmethod
     def _feedback_path(path):

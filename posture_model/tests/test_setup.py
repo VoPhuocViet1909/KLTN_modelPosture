@@ -2,6 +2,7 @@
 import os
 import sys
 import tempfile
+from types import SimpleNamespace
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -109,7 +110,10 @@ def main():
         assert "Mất hình camera trước" in ctl.window.hint.text()
         assert "Kết nối lại" in ctl.window.btn_setup.text()
         assert not ctl.camera.isVisible()
-        auth = object()
+        auth = SimpleNamespace(base_url='http://localhost:8080', user_id='setup-test-owner')
+        from workspace_profiles import WorkspaceProfiles
+        profile_store = WorkspaceProfiles(os.path.join(tmp, 'workspace-profiles.db'))
+        ctl._workspace_profiles = lambda: profile_store
         ctl.auth, ctl.remember, ctl.mode = auth, True, "session"
         ctl._start_session = lambda a, r: restarted.append((a, r))
         class SessionSetup(AcceptedSetup):
