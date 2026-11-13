@@ -3,7 +3,10 @@
   python shoulder_threshold_stats.py --videos D:\\KLTN\\video_tach          # dữ liệu thật
   python shoulder_threshold_stats.py --demo                               # dữ liệu giả (tests/fake_pose.py) để kiểm logic
 
-Đầu vào: thư mục chứa P##_S##_<CLIP>_FRONT.mp4 (cam laptop; _SIDE.mp4 chưa dùng ở script này).
+Đầu vào: thư mục chứa P##_S##_<CLIP>_FRONT.mp4 (cam laptop) và, nếu có, P##_S##_<CLIP>_SIDE.mp4 (cam hông).
+  Có _SIDE: tính góc cổ so với baseline (từ clip CALIBRATION, giống engine) và áp điều kiện loại cúi đầu
+  (cổ > SHRUG_NECK_GUARD_DEG thì không tính nhún vai) khi đánh giá. Thiếu _SIDE: chạy như cũ, in cảnh báo.
+  Điều kiện cổ ở đây chỉ dùng góc cổ; nhánh Transformer (cổ/thân BAD) chưa mô phỏng.
   - Baseline mỗi người/buổi = trung vị trên clip CALIBRATION (bỏ 3 s đầu/cuối).
   - GOOD = GOOD_01, GOOD_02.  BAD vai = SHOULDER_TILT_L/R, SHOULDER_RAISE_L/R, SHOULDER_SHRUG_BOTH (chỉ NỬA SAU clip = mức rõ).
   - Phải-KHÔNG-báo = HEAD_TILT_SIDE_*, FORWARD_HEAD_*, TRANSIENT_* (đếm báo giả).
@@ -26,11 +29,13 @@ import numpy as np
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(HERE, "tests"))
-from posture_features import shoulder_raise, shoulder_tilt  # noqa: E402
+from posture_features import (FEATURES, apply_calibration, calibration_baseline, choose_side,  # noqa: E402
+                              facing_sign, sequence_angles, shoulder_raise, shoulder_tilt)
 
 CLIP_RE = re.compile(r"^(P\d+)_(S\d+)_(.+)_FRONT\.mp4$", re.I)
 CAL_TRIM_SEC = 3.0
 WIN_SEC, ESTRADA_WIN_SEC = 2.0, 10.0
+NECK_GUARD_DEG = 10.0     # = PostureEngine.SHRUG_NECK_GUARD_DEG (test_shoulder_raise.py kiểm hai số bằng nhau)
 DEFAULT_MULTI = r"D:\KLTN\datasets\multiposture\data.csv"
 
 
@@ -63,10 +68,13 @@ def frame_features(L):
 
 # ------------------------------------------------------------------ nguồn dữ liệu
 def video_source(folder, fps):
-    """Mỗi clip -> (person, session, clip, t[], bảng đặc trưng (n,4))."""
+    """Mỗi clip -> (person, session, clip, t[], bảng đặc trưng (n,4), S). S = danh sách (L, W) cam hông tại cùng các
+    thời điểm lấy mẫu, hoặc None nếu không có file _SIDE.mp4."""
     import cv2
     from realtime_posture import PoseDetector
-    det = PoseDetector(os.path.join(HERE, "pose_landmarker_full.task"))
+    task = os.path.join(HERE, "pose_landmarker_full.task")
+    det = PoseDetector(task)
+    det_side = PoseDetector(task)
     for path in sorted(glob.glob(os.path.join(folder, "*_FRONT.mp4"))):
         m = CLIP_RE.match(os.path.basename(path))
         if not m or clip_kind(m.group(3)) is None:
@@ -84,12 +92,33 @@ def video_source(folder, fps):
                 feats.append(frame_features(det(fr, int(i / vfps * 1000))[0]))
             i += 1
         cap.release()
-        yield m.group(1), m.group(2), m.group(3), np.array(ts), np.array(feats, float).reshape(-1, 4)
+        yield (m.group(1), m.group(2), m.group(3), np.array(ts), np.array(feats, float).reshape(-1, 4),
+               _side_samples(path.replace("_FRONT.mp4", "_SIDE.mp4"), ts, det_side))
 
 
-def demo_source(fps, seed=0):
+def _side_samples(path, ts, det):
+    """Landmark cam hông tại các thời điểm ts (giây) của clip _FRONT; None nếu không có file _SIDE.mp4."""
+    if not os.path.exists(path):
+        return None
+    import cv2
+    cap = cv2.VideoCapture(path)
+    vfps = cap.get(cv2.CAP_PROP_FPS) or 30
+    want = {int(round(t * vfps)) for t in ts}
+    got, i = {}, 0
+    while True:
+        ok, fr = cap.read()
+        if not ok:
+            break
+        if i in want:
+            got[i] = det(fr, int(i / vfps * 1000))
+        i += 1
+    cap.release()
+    return [got.get(int(round(t * vfps)), (None, None)) for t in ts]
+
+
+def demo_source(fps, seed=0, with_side=True):
     """Dữ liệu giả: 6 người, mỗi người đủ loại clip 20 s. Chỉ để kiểm logic, KHÔNG có ý nghĩa thống kê thật."""
-    from fake_pose import front_landmarks
+    from fake_pose import front_landmarks, side_landmarks
     rng = np.random.default_rng(seed)
     n = int(20 * fps)
     t = np.arange(n) / fps
@@ -99,7 +128,7 @@ def demo_source(fps, seed=0):
     for pi in range(6):
         base_t, base_r = rng.normal(0, 1.0), rng.normal(0, 0.03)
         for clip, (tilt, rise) in plan.items():
-            rows = []
+            rows, side = [], []
             for k in range(n):
                 second_half = t[k] >= 10
                 on = second_half and clip_kind(clip) in ("BAD", "NOALERT") and not clip.startswith("TRANSIENT")
@@ -109,7 +138,10 @@ def demo_source(fps, seed=0):
                 L[:, :2] += rng.normal(0, 0.4, (33, 2)).astype(np.float32)
                 L[0, 1] = (L[7, 1] + L[8, 1]) / 2 + 30        # mũi đi theo tai
                 rows.append(frame_features(L))
-            yield f"P{pi + 1:02d}", "S01", clip, t, np.array(rows, float)
+                if with_side:        # FORWARD_HEAD: đầu đưa ra trước (cổ gập ~50°) ở nửa sau clip; các clip khác cổ thẳng
+                    bow = 60.0 if clip.startswith("FORWARD_HEAD") and second_half else 0.0
+                    side.append(side_landmarks(bow + rng.normal(0, 0.5), 0.0))
+            yield f"P{pi + 1:02d}", "S01", clip, t, np.array(rows, float), (side if with_side else None)
 
 
 # ------------------------------------------------------------------ thống kê
@@ -192,18 +224,40 @@ def multiposture_p95(path):
 
 
 # ------------------------------------------------------------------ dựng bảng khung + cửa sổ
+def neck_baseline(Ls_Ws):
+    """Từ danh sách (L, W) của clip CALIBRATION cam hông -> (side, facing, baseline) như engine, hoặc None."""
+    pairs = [(L, W) for L, W in Ls_Ws if L is not None]
+    if len(pairs) < 5:
+        return None
+    Lc, Wc = np.stack([p[0] for p in pairs]), np.stack([p[1] for p in pairs])
+    side = choose_side(Lc, Wc)
+    f = facing_sign(Lc, side)
+    return side, f, calibration_baseline(sequence_angles(Lc, side, f))
+
+
+def neck_rel(L, nb):
+    """Góc cổ so với baseline (độ, dương = cúi/đưa đầu ra trước), nan nếu không có khung hông."""
+    if L is None or nb is None:
+        return np.nan
+    side, f, base = nb
+    c = apply_calibration(sequence_angles(L[None], side, f), base)
+    return float(c[0, FEATURES.index("neck")])
+
+
 def build_frames(source, bad_clips=()):
     """-> list dict mỗi khung (đã trừ baseline). Bỏ khung nan, bỏ nửa đầu clip BAD (chưa rõ), bỏ clip bị người chấm loại."""
     raw = list(source)
-    base = {}
-    for p, s, clip, t, F in raw:
+    base, nbase = {}, {}
+    for p, s, clip, t, F, S in raw:
         if clip_kind(clip) == "CAL":
             keep = (t >= CAL_TRIM_SEC) & (t <= t[-1] - CAL_TRIM_SEC) if len(t) else np.array([], bool)
+            if S is not None:
+                nbase[(p, s)] = neck_baseline([x for x, k in zip(S, keep) if k])
             F = F[keep]
             if np.isfinite(F[:, 0]).sum() >= 5 and np.isfinite(F[:, 1]).sum() >= 5:
                 base[(p, s)] = (float(np.nanmedian(F[:, 0])), float(np.nanmedian(F[:, 1])))
     rows = []
-    for p, s, clip, t, F in raw:
+    for p, s, clip, t, F, S in raw:
         kind = clip_kind(clip)
         if kind in (None, "CAL") or (p, s) not in base or f"{p}_{s}_{clip}" in bad_clips:
             continue
@@ -215,8 +269,9 @@ def build_frames(source, bad_clips=()):
             if kind == "BAD" and t[k] < half:
                 continue
             rr = (rb - F[k, 1]) / rb if np.isfinite(F[k, 1]) and rb > 0 else np.nan
+            nr = neck_rel(S[k][0], nbase.get((p, s))) if S is not None else np.nan
             rows.append(dict(person=p, session=s, clip=clip, kind=kind, t=float(t[k]), tilt_rel=F[k, 0] - tb,
-                             raise_rel=rr, dL=F[k, 2], dR=F[k, 3], label=1 if kind == "BAD" else 0))
+                             raise_rel=rr, neck_rel=nr, dL=F[k, 2], dR=F[k, 3], label=1 if kind == "BAD" else 0))
     return rows
 
 
@@ -233,6 +288,7 @@ def windows(rows, sec, fps):
             d = dict(person=p, clip=clip, kind=w[0]["kind"], label=w[0]["label"])
             d["abs_tilt"] = float(np.nanmedian(np.abs(col("tilt_rel"))))
             d["raise"] = float(np.nanmedian(col("raise_rel"))) if np.isfinite(col("raise_rel")).any() else np.nan
+            d["neck"] = float(np.nanmedian(col("neck_rel"))) if np.isfinite(col("neck_rel")).any() else np.nan
             est = []
             for k in ("dL", "dR"):
                 c = col(k)
@@ -254,8 +310,15 @@ def fit_rule(train):
     return t_thr, r_thr
 
 
-def rule_pred(w, t_thr, r_thr):
-    return int(w["abs_tilt"] > t_thr or (np.isfinite(w["raise"]) and np.isfinite(r_thr) and w["raise"] > r_thr))
+def rule_pred(w, t_thr, r_thr, neck_guard=True):
+    """BAD nếu |tilt| > ngưỡng, hoặc nâng vai > ngưỡng VÀ không đang cúi đầu (cổ so baseline <= NECK_GUARD_DEG; như engine).
+    Cửa sổ không có góc cổ (thiếu _SIDE) thì không áp điều kiện cổ."""
+    neck_ok = not (neck_guard and np.isfinite(w.get("neck", np.nan)) and w["neck"] > NECK_GUARD_DEG)
+    return int(w["abs_tilt"] > t_thr or (neck_ok and np.isfinite(w["raise"]) and np.isfinite(r_thr) and w["raise"] > r_thr))
+
+
+def fit_rule_fn(neck_guard):
+    return lambda tr, te: [rule_pred(w, *fit_rule(tr), neck_guard=neck_guard) for w in te]
 
 
 def loso(wins, predict_fn):
@@ -299,6 +362,7 @@ def main(argv=None):
     ap.add_argument("--out", default=os.path.join(HERE, "out"))
     ap.add_argument("--review", help="review.csv: clip,người chấm 1,người chấm 2 (đạt / không đạt yêu cầu kịch bản)")
     ap.add_argument("--multiposture", default=DEFAULT_MULTI)
+    ap.add_argument("--no-side", action="store_true", help="bỏ qua cam hông (chạy như khi thiếu _SIDE.mp4)")
     a = ap.parse_args(argv)
     if not a.demo and not a.videos:
         ap.error("cần --videos <thư mục> hoặc --demo")
@@ -311,7 +375,10 @@ def main(argv=None):
         kappa_note = f"Cohen's kappa giữa 2 người chấm trên {n} clip = {k:.3f}; loại {len(bad_clips)} clip không đạt: {sorted(bad_clips)}"
     md += ["## Độ đồng thuận nhãn", kappa_note, ""]
 
-    rows = build_frames(demo_source(a.fps) if a.demo else video_source(a.videos, a.fps), bad_clips)
+    def drop_side(src):
+        return ((p, s_, c, t, F, None) for p, s_, c, t, F, _ in src) if a.no_side else src
+    src = demo_source(a.fps, with_side=not a.no_side) if a.demo else drop_side(video_source(a.videos, a.fps))
+    rows = build_frames(src, bad_clips)
     if not rows:
         print("Không có khung hợp lệ (thiếu clip CALIBRATION hoặc tên clip sai quy ước).")
         return 1
@@ -320,6 +387,17 @@ def main(argv=None):
         w = csv.DictWriter(f, fieldnames=list(rows[0]))
         w.writeheader()
         w.writerows(rows)
+
+    n_side = sum(1 for r in rows if np.isfinite(r["neck_rel"]))
+    has_side = n_side > 0
+    if not has_side:
+        warn = "CẢNH BÁO: không có _SIDE.mp4 (hoặc bỏ qua cam hông) – chưa áp dụng điều kiện cổ (loại cúi đầu) khi đánh giá nhún vai."
+    elif n_side < len(rows):
+        warn = f"CẢNH BÁO: chỉ {n_side}/{len(rows)} khung có góc cổ từ _SIDE; khung thiếu _SIDE chưa áp dụng điều kiện cổ."
+    else:
+        warn = f"Đã áp dụng điều kiện cổ (cổ > {NECK_GUARD_DEG:g}° so baseline thì không tính nhún vai) trên {n_side} khung có _SIDE."
+    print(warn)
+    md += ["## Điều kiện cổ (loại cúi đầu)", warn, ""]
 
     good = [r for r in rows if r["kind"] == "GOOD"]
     bad = [r for r in rows if r["kind"] == "BAD"]
@@ -339,10 +417,13 @@ def main(argv=None):
            f"- Điểm ROC raiseRel (FPR, TPR) mẫu: {[(round(f, 2), round(t, 2)) for f, t in r_roc[::max(len(r_roc) // 8, 1)]]}", ""]
 
     w2 = windows(rows, WIN_SEC, a.fps)
-    acc, kap, fa, nfa, n = loso(w2, lambda tr, te: [rule_pred(w, *fit_rule(tr)) for w in te])
+    acc, kap, fa, nfa, n = loso(w2, fit_rule_fn(True))
     cur = [rule_pred(w, 3.5, np.nan) for w in w2]
     cur_fa = sum(c for w, c in zip(w2, cur) if w["kind"] == "NOALERT")
-    results = [("Công thức + ngưỡng Youden (cửa sổ 2 s)", acc, kap, fa, nfa, n)]
+    results = [("Công thức + ngưỡng Youden" + (" + điều kiện cổ" if has_side else " (chưa có điều kiện cổ)") + " (cửa sổ 2 s)",
+                acc, kap, fa, nfa, n)]
+    if has_side:
+        results.append(("Công thức + ngưỡng Youden, KHÔNG điều kiện cổ (đối chứng)",) + loso(w2, fit_rule_fn(False)))
     w10 = windows(rows, ESTRADA_WIN_SEC, a.fps)
     try:
         from sklearn.ensemble import RandomForestClassifier

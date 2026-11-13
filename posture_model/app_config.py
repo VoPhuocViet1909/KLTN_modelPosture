@@ -26,7 +26,7 @@ DEFAULTS = {
     "shoulder_tilt_off": None,       # (2.5°)
     "shoulder_raise_on": None,       # nhún vai: (raise_base - raise)/raise_base > on (phân số, vd 0.08). None = TẮT cho tới khi có số liệu
     "shoulder_raise_off": None,      # hết nhún vai khi < off (<= on)
-    "shoulder_motion_std": 2.0,      # độ lệch chuẩn lệch vai (độ) trong 10 s > mức này = đang cử động -> không báo; None = tắt
+    "shoulder_motion_std": None,     # độ lệch chuẩn lệch vai (độ) trong 10 s > mức này = đang cử động -> không báo. None = TẮT (tạm 2,0 khi thử)
     "shoulder_raise_motion_std": None,   # tương tự cho độ nâng vai (phân số); None = tắt cho tới khi có số liệu
     # --- nhánh khoảng cách
     "distance_on_cm": 50,            # gần hơn 50 cm -> quá gần
@@ -85,7 +85,7 @@ class AppConfig:
         if v is None:                                # lấy mặc định của model nếu để null
             fallback = {"p_bad_threshold": "threshold", "shoulder_tilt_on": "shoulder_tilt_on",
                         "shoulder_tilt_off": "shoulder_tilt_off", "shoulder_raise_on": "shoulder_raise_on",
-                        "shoulder_raise_off": "shoulder_raise_off"}.get(k)
+                        "shoulder_raise_off": "shoulder_raise_off", "shoulder_motion_std": "shoulder_motion_std"}.get(k)
             if fallback:
                 return self.model_cfg.get(fallback)
         return v
