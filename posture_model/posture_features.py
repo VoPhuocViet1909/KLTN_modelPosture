@@ -165,5 +165,31 @@ def shoulder_tilt(p):
     return math.degrees(math.atan2(dy, dx))
 
 
+MIN_SHOULDER_WIDTH_PX = 20.0   # hai vai gần nhau hơn mức này (xoay người / ra xa) -> tỉ lệ vô nghĩa
+
+
+def shoulder_raise(p):
+    """p: (33,3) pixel x,y,vis từ cam CHÍNH DIỆN. Độ nâng vai (đo nhún vai) = khoảng cách DỌC tai -> vai (trung bình hai bên)
+    chia độ rộng vai |x vai trái − x vai phải| (để không phụ thuộc khoảng cách tới cam). Vai nâng lên -> giá trị GIẢM.
+
+    Nguồn: Estrada, Vea, Devaraj (2023), Applied Sciences 13(5402): đặc trưng khoảng cách đầu -> vai (cơ thang) cho mô hình vai
+    "levelled (not raised or rounded)". Dùng TAI (7, 8) thay mũi vì mũi dịch theo hướng xoay mặt; thiếu một tai thì dùng tai
+    còn lại. Chỉ so với baseline lúc hiệu chỉnh. Cúi đầu / đưa đầu ra trước cũng làm giá trị giảm -> engine phải loại bằng
+    nhánh cổ/thân (cam hông). Trả nan nếu vai/tai không đủ tin cậy hoặc độ rộng vai quá nhỏ."""
+    L, R = p[11], p[12]
+    if not (np.isfinite(L).all() and np.isfinite(R).all()) or min(L[2], R[2]) < MIN_SHOULDER_VIS:
+        return np.nan
+    width = abs(float(R[0] - L[0]))
+    if width < MIN_SHOULDER_WIDTH_PX:
+        return np.nan
+    ds = []
+    for ear, sh in ((p[7], L), (p[8], R)):
+        if np.isfinite(ear).all() and ear[2] >= MIN_SHOULDER_VIS:
+            ds.append(float(sh[1] - ear[1]))          # ảnh: y tăng xuống dưới -> vai ở dưới tai = dương
+    if not ds:
+        return np.nan
+    return float(np.mean(ds)) / width
+
+
 def sequence_shoulder_tilt(lm_seq):
     return np.array([shoulder_tilt(p) if np.isfinite(p).any() else np.nan for p in lm_seq], np.float32)

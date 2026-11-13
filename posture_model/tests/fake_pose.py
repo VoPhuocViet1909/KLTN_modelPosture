@@ -39,6 +39,44 @@ def side_landmarks(ear_dx, trunk_dx=0.0):
     return L, W
 
 
+def front_landmarks(tilt_deg=0.0, raise_frac=0.0, ears=(True, True), vis=1.0):
+    """Cam laptop chính diện. Vai trái ảnh x=100, vai phải x=220 (rộng 120 px). tilt_deg > 0: vai phải ảnh thấp hơn.
+    raise_frac: 0 = ngồi thẳng (tai cách vai 60 px = 0,5 độ rộng vai); 0,4 = vai nâng, khoảng cách tai-vai giảm 40%.
+    Mắt (2, 5) cách nhau 28 px (~58 cm) để đo khoảng cách như thật."""
+    L = np.zeros((33, 3), np.float32)
+    yl = 200.0
+    yr = 200.0 + 120.0 * float(np.tan(np.radians(tilt_deg)))
+    L[11] = (100, yl, vis)
+    L[12] = (220, yr, vis)
+    d = 60.0 * (1.0 - raise_frac)
+    if ears[0]:
+        L[7] = (110, yl - d, 1)
+    if ears[1]:
+        L[8] = (210, yr - d, 1)
+    L[2] = (146, 120, 1)
+    L[5] = (174, 120, 1)
+    L[0] = (160, 130, 1)
+    return L
+
+
+class FakeFrontDetector:
+    """schedule: list (đến giây, tilt_deg, raise_frac); tilt/raise có thể là hàm của t (giây) để tạo dao động."""
+    schedule = [(1e9, 0.0, 0.0)]
+    det = None
+
+    def __init__(self, task_path=None):
+        pass
+
+    def __call__(self, frame_bgr, ts_ms):
+        t = ts_ms / 1000.0
+        for until, tilt, rise in self.schedule:
+            if t < until:
+                tilt = tilt(t) if callable(tilt) else tilt
+                rise = rise(t) if callable(rise) else rise
+                return front_landmarks(tilt, rise), None
+        return None, None
+
+
 class FakePoseDetector:
     """schedule: list (đến giây, ear_dx[, trunk_dx]) hoặc ear_dx = None = không thấy người. Tra theo timestamp video."""
     schedule = [(5, 0), (12, 70), (1e9, 0)]

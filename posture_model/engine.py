@@ -36,7 +36,7 @@ from metrics import MetricsAggregator
 from notifier import Notifier, NotifierBase
 from outbox import Outbox
 from posture_features import (FEATURES, apply_calibration, calibration_baseline, choose_side, facing_sign,
-                              rula_frame_label, sequence_angles, shoulder_tilt, to_model_input)
+                              rula_frame_label, sequence_angles, shoulder_raise, shoulder_tilt, to_model_input)
 from quality import ANGLE_KEYS, angles_ok, dist_ok
 from realtime_posture import PoseDetector, draw_front, draw_side
 from sender import Sender
@@ -154,6 +154,9 @@ class PostureEngine:
     CAMERA_LOSS_SEC = 3.0       # ponytail: phát hiện giữa các read(); driver treo cần capture process riêng.
     STATE_EVERY = 0.25          # giây giữa hai lần phát on_state
     CALIB_RETRY_SEC = 3.0       # hiệu chỉnh không đạt: hiện lý do bấy nhiêu giây rồi tự làm lại
+    MOTION_WIN_SEC = 10.0       # cửa sổ tính độ lệch chuẩn vai (Estrada 2023: cửa sổ 10 s)
+    MOTION_MIN_SAMPLES = 20     # ít hơn thế thì chưa đủ để kết luận đang cử động
+    SHRUG_NECK_GUARD_DEG = 10.0 # góc cổ (so baseline) lớn hơn thế = đang cúi đầu, không tính là nhún vai
     SYNC_EVERY = 1.0            # giây giữa hai lần đọc trạng thái gửi (SQLite)
 
     def __init__(self, opts, cfg=None, model_cfg=None, auth=None, config_sync=None, notifier=None,
@@ -349,11 +352,11 @@ class PostureEngine:
         self.elog.emit(dict(eventType="SESSION_START", t=0.0, frontCam=self.cap_f is not None,
                             distanceMethod=None if self.ed is None else ("iris" if self.ed.det else "ipd")),
                        config=cfg.snapshot())
-        self.snap = dict(pBad=None, neck=None, trunk=None, headPitch=None, rulaB=None, tiltRel=None, distanceCm=None)
+        self.snap = dict(pBad=None, neck=None, trunk=None, headPitch=None, rulaB=None, tiltRel=None, raiseRel=None, distanceCm=None)
         self.logf = open(o.log, "w", encoding="utf-8") if o.log else None
         if self.logf:
             self.logf.write("time,posture,p_bad," + ",".join(FEATURES)
-                            + ",rula_b,shoulder,tilt_rel,distance_cm,distance\n")
+                            + ",rula_b,shoulder,tilt_rel,raise_rel,distance_cm,distance\n")
 
         if o.stream_camera:
             self.request_stream(o.stream_camera)
@@ -475,11 +478,15 @@ class PostureEngine:
         render = o.render_legacy or self.viewer is not None
 
         cal, side, f, base, tilt_base = self._start_calib(), None, None, None, None
+        raise_base = None                                     # baseline độ nâng vai (shoulder_raise)
         cal_fail, progress, last_prog = None, None, -1e9       # hiệu chỉnh không đạt: chờ vài giây rồi làm lại
         buf = collections.deque(maxlen=WIN)
         valid_buf = collections.deque(maxlen=WIN)
         p_hist, t_hist, d_hist = (collections.deque(maxlen=5) for _ in range(3))     # median filter 5 kết quả
+        r_hist = collections.deque(maxlen=5)                                         # median filter độ nâng vai
+        mot_hist = collections.deque()                       # (t, tiltRel, raiseRel) thô trong ~10 s: đo cử động (Estrada 2023)
         p_med, t_med, d_med, ang, rula_lab = 0.0, np.nan, np.nan, None, None
+        r_med = np.nan
         last_s = last_f = last_cfg = -1e9
         Ls_draw = Lf_draw = None
         frame_i, t_start, now = 0, time.time(), 0.0
@@ -606,6 +613,7 @@ class PostureEngine:
                         cal["W"].append(Ws)
                     if Lf is not None:
                         cal["tilt"].append(shoulder_tilt(Lf))
+                        cal.setdefault("raise", []).append(shoulder_raise(Lf))
                     if dkind:
                         cal["dpx"].append(dpx)
                         cal["dkind"].append(dkind)
@@ -638,6 +646,10 @@ class PostureEngine:
                         base = calibration_baseline(sequence_angles(Lc, side, f))
                         tilts = np.array(cal["tilt"], float)
                         tilt_base = float(np.nanmedian(tilts)) if np.isfinite(tilts).sum() >= 5 else None
+                        raises = np.array(cal.get("raise", []), float)
+                        raise_base = float(np.nanmedian(raises)) if np.isfinite(raises).sum() >= 5 else None
+                        if raise_base is not None and raise_base <= 0:
+                            raise_base = None                       # tai ở dưới vai = bắt sai điểm khớp
                         dist_base = np.nan
                         if ed is not None:
                             med_px = ed.calibrate(cal["dpx"], cal["dkind"], cfg["calib_distance_cm"])
@@ -653,8 +665,9 @@ class PostureEngine:
                         print(f"Hiệu chỉnh xong: phía {'trái' if side == 0 else 'phải'}, baseline",
                               {k: round(v, 1) for k, v in base.items()},
                               "| lệch vai:", None if tilt_base is None else round(tilt_base, 1),
+                              "| nâng vai (tai→vai / rộng vai):", None if raise_base is None else round(raise_base, 3),
                               "| khoảng cách:", None if not np.isfinite(dist_base) else f"{dist_base:.0f} cm")
-                        buf.clear(); valid_buf.clear(); p_hist.clear(); t_hist.clear(); d_hist.clear()
+                        buf.clear(); valid_buf.clear(); p_hist.clear(); t_hist.clear(); d_hist.clear(); r_hist.clear(); mot_hist.clear()
                         if rem.sit_start is None:
                             rem.start(now)
                 lc = max(left, 0)
@@ -673,7 +686,7 @@ class PostureEngine:
                             for t in trackers:
                                 pevs = pevs + t.reset(now, "AWAY")
                             rem.stop()
-                            buf.clear(); valid_buf.clear(); p_hist.clear(); t_hist.clear(); d_hist.clear()
+                            buf.clear(); valid_buf.clear(); p_hist.clear(); t_hist.clear(); d_hist.clear(); r_hist.clear(); mot_hist.clear()
                         else:
                             rem.start(now)
                     emit(pevs)
@@ -708,17 +721,45 @@ class PostureEngine:
                                         else int(rula_lab))
                             emit(tr_neck.update(bad, now))
 
-                    # ---- nhánh 2: lệch vai
+                    # ---- nhánh 2: lệch vai (+ nhún vai khi bật shoulder_raise_on)
                     if sample_f and tilt_base is not None:
                         tv = shoulder_tilt(Lf) if Lf is not None else np.nan
+                        raise_on, raise_off = cfg["shoulder_raise_on"], cfg["shoulder_raise_off"]
+                        raise_en = raise_on is not None and raise_off is not None and raise_base is not None
+                        rv = shoulder_raise(Lf) if raise_en and Lf is not None else np.nan
                         if np.isfinite(tv):
                             t_hist.append(tv - tilt_base)
+                        if raise_en and np.isfinite(rv):
+                            r_hist.append((raise_base - rv) / raise_base)    # dương = vai nâng lên / gần tai hơn
+                        if np.isfinite(tv):                                   # cửa sổ ~10 s để đo cử động
+                            mot_hist.append((now, tv - tilt_base,
+                                             (raise_base - rv) / raise_base if raise_en and np.isfinite(rv) else np.nan))
+                        while mot_hist and now - mot_hist[0][0] > self.MOTION_WIN_SEC:
+                            mot_hist.popleft()
                         if t_hist:
                             t_med = float(np.median(t_hist))
                             on, off = cfg["shoulder_tilt_on"], cfg["shoulder_tilt_off"]
                             bad = True if abs(t_med) > on else False if abs(t_med) < off else None
                             snap["tiltRel"] = t_med
-                            emit(tr_tilt.update(bad if np.isfinite(tv) else None, now))
+                            if raise_en and r_hist:
+                                r_med = float(np.median(r_hist))
+                                snap["raiseRel"] = r_med
+                                # cúi đầu / đưa đầu ra trước cũng làm tai gần vai: chỉ tính nhún vai khi nhánh cổ/thân ổn
+                                neck_ok = (tr_neck.status not in ("BAD", "CANH BAO")
+                                           and not (ang and ang["neck"] > self.SHRUG_NECK_GUARD_DEG))
+                                r_bad = neck_ok and r_med > raise_on
+                                r_good = (not neck_ok) or r_med < raise_off
+                                bad = True if (bad is True or r_bad) else False if (bad is False and r_good) else None
+                            ok = np.isfinite(tv)
+                            # đang cử động (vươn vai, với đồ): độ lệch chuẩn trong 10 s quá lớn -> None (không báo, giữ nguyên)
+                            if ok and len(mot_hist) >= self.MOTION_MIN_SAMPLES:
+                                m_std, r_std = cfg["shoulder_motion_std"], cfg["shoulder_raise_motion_std"]
+                                ts = float(np.std([m[1] for m in mot_hist]))
+                                rs = float(np.nanstd([m[2] for m in mot_hist])) if raise_en else np.nan
+                                if (m_std is not None and ts > m_std) or (
+                                        r_std is not None and np.isfinite(rs) and rs > r_std):
+                                    ok = False
+                            emit(tr_tilt.update(bad if ok else None, now))
 
                     # ---- nhánh 3: khoảng cách mắt – màn hình
                     if sample_f and ed is not None:
@@ -746,7 +787,7 @@ class PostureEngine:
                 if self.logf and sample_s:
                     self.logf.write(f"{now:.2f},{tr_neck.status},{p_med:.3f},"
                                     + ",".join(f"{ang[k]:.2f}" if ang else "" for k in FEATURES)
-                                    + f",{rula_lab},{tr_tilt.status if tilt_base is not None else ''},{t_med:.2f}"
+                                    + f",{rula_lab},{tr_tilt.status if tilt_base is not None else ''},{t_med:.2f},{r_med:.4f}"
                                     + f",{d_med:.1f},{tr_dist.status if ed is not None else ''}\n")
                 vis_s = vis_f = None
                 if render:
@@ -789,14 +830,14 @@ class PostureEngine:
             if self._skip_front.is_set():          # bỏ qua cam laptop: không đo lệch vai / khoảng cách nữa
                 self._skip_front.clear()
                 self._front_off = True
-                tilt_base, t_med, d_med = None, np.nan, np.nan
-                t_hist.clear(); d_hist.clear()
-                snap.update(tiltRel=None, distanceCm=None)
+                tilt_base, raise_base, t_med, r_med, d_med = None, None, np.nan, np.nan, np.nan
+                t_hist.clear(); d_hist.clear(); r_hist.clear(); mot_hist.clear()
+                snap.update(tiltRel=None, raiseRel=None, distanceCm=None)
                 print("Đã bỏ qua camera laptop: chạy không đo lệch vai và khoảng cách.")
             if self._recalib.is_set():
                 self._recalib.clear()
                 self._front_off = False
-                cal, base, tilt_base = self._start_calib(now), None, None
+                cal, base, tilt_base, raise_base = self._start_calib(now), None, None, None
                 cal_fail, progress, last_prog = None, None, -1e9
         return "stopped"
 

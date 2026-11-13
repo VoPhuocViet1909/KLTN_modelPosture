@@ -1,0 +1,2 @@
+# Chỉ cho công cụ phân tích / thí nghiệm (shoulder_threshold_stats.py). KHÔNG đưa vào requirements.txt của app.
+scikit-learn==1.9.1
