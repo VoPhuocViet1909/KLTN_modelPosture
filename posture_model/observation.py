@@ -16,6 +16,18 @@ class ObservationBuffer:
         self.sent_state = None
         self.sent_at = -1e9
         self.config = None
+        self.diagnostics = None
+        self.diagnostics_supported = False
+
+    def set_diagnostics(self, value):
+        with self.lock:
+            self.diagnostics = dict(value) if value else None
+
+    def enable_diagnostics(self, enabled):
+        with self.lock:
+            if self.diagnostics_supported != enabled:
+                self.diagnostics_supported = enabled
+                self.sent_state = None
 
     def put(self, device, session, state):
         with self.lock:
@@ -36,6 +48,8 @@ class ObservationBuffer:
             if self.latest is None or now - self.latest[0] > 3:
                 return False
             payload = dict(self.latest[1])
+            if self.diagnostics_supported and self.diagnostics is not None:
+                payload['diagnostics'] = dict(self.diagnostics)
             if not force and payload['state'] == self.sent_state and now - self.sent_at < 5:
                 return False
         emit('device-state', payload)

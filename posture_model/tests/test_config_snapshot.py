@@ -64,7 +64,7 @@ def main():
     del state['error']
     # Drive the actual worker with a fake clock: no waiting, network or real socket.
     polling = ConfigSync(sync.auth)
-    polling.sio = SimpleNamespace(connected=True, emit=lambda *args: None, disconnect=lambda: None)
+    polling.sio = SimpleNamespace(connected=True, emit=lambda *args, **kwargs: None, disconnect=lambda: None)
     clock = [0.0]
     advances = iter([29, 30, 59, 60, 61])
     def advance(timeout):
@@ -77,7 +77,7 @@ def main():
         polling._run()
     assert len(calls) == before + 3, 'Worker must fetch at startup, 30 and 60 seconds'
     reconnect = ConfigSync(sync.auth)
-    socket = SimpleNamespace(connected=False, emit=lambda *args: None, disconnect=lambda: None)
+    socket = SimpleNamespace(connected=False, emit=lambda *args, **kwargs: None, disconnect=lambda: None)
     socket.connect = lambda *args, **kwargs: setattr(socket, 'connected', True)
     reconnect.sio = socket
     reconnect.auth.token = lambda: 'synthetic-token'

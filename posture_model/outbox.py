@@ -123,12 +123,17 @@ class Outbox:
         with self._lock:
             self.db.execute("UPDATE outbox SET next_try=0 WHERE sent_at IS NULL AND dead=0")
 
-    def stats(self):
+    def stats(self, include_diagnostics=False):
         with self._lock:
             pending, = self.db.execute("SELECT COUNT(*) FROM outbox WHERE sent_at IS NULL AND dead=0").fetchone()
             sent, = self.db.execute("SELECT COUNT(*) FROM outbox WHERE sent_at IS NOT NULL").fetchone()
             dead, = self.db.execute("SELECT COUNT(*) FROM outbox WHERE dead=1").fetchone()
-        return {"pending": pending, "sent": sent, "dead": dead}
+            result = {"pending": pending, "sent": sent, "dead": dead}
+            if include_diagnostics:
+                retrying, oldest = self.db.execute("SELECT COUNT(CASE WHEN attempts>0 THEN 1 END), MIN(created_at) "
+                    "FROM outbox WHERE sent_at IS NULL AND dead=0").fetchone()
+                result.update(retrying=retrying, oldestPendingAt=oldest)
+        return result
 
     def purge_sent(self, older_than_days=7):
         with self._lock:

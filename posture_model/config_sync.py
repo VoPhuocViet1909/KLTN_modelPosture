@@ -64,6 +64,9 @@ class ConfigSync:
         self.received = self.applied = self.result = self.taken = None
         self.fetch_error = False
         self.next_poll = 0.0
+        self.fetch_apply_ms = None
+        self.connection_generation = 0
+        self.observation_ack_pending = False
         self.sio.on("config", lambda data: self.dirty.set())
         self.thread = threading.Thread(target=self._run, name="config-sync", daemon=True)
 
@@ -87,6 +90,9 @@ class ConfigSync:
                         appliedAt=datetime.now(timezone.utc).isoformat() if accepted else None)
         with self.lock:
             self.result = metadata
+            started = snapshot.get('_fetch_started_mono')
+            elapsed = round((time.monotonic() - started) * 1000) if started is not None else None
+            self.fetch_apply_ms = elapsed if accepted and elapsed is not None and 0 <= elapsed <= 300000 else None
             if accepted:
                 self.applied = metadata if metadata['version'] is not None else None
         self.observations.set_config(metadata if metadata['version'] is not None else None)
@@ -141,9 +147,10 @@ class ConfigSync:
 
     def status(self):
         with self.lock:
-            return copy.deepcopy(dict(received=self.received, applied=self.applied, result=self.result, fetchError=self.fetch_error))
+            return copy.deepcopy(dict(received=self.received, applied=self.applied, result=self.result, fetchError=self.fetch_error, fetchApplyMs=self.fetch_apply_ms))
 
     def _fetch(self):
+        started = time.monotonic()
         try:
             request = urllib.request.Request(self.auth.base_url + '/api/v1/config/me/snapshot')
             with self.auth.open(request, timeout=5) as response:
@@ -166,26 +173,47 @@ class ConfigSync:
                 raise ValueError('Config version regressed')
             self.received = {k: snapshot[k] for k in ('version', 'revision')}
             self.fetch_error = False
+        snapshot['_fetch_started_mono'] = started
         self.snapshots.append(snapshot)
         self.next_poll = time.monotonic() + 30
         self._fetch_policy()
         self._fetch_workspace()
 
+    def _emit_observation(self, event, payload):
+        if self.observation_ack_pending:
+            self.sio.emit(event,payload)
+            return
+        self.observation_ack_pending = True
+        generation = self.connection_generation
+        def acknowledged(reply=None):
+            if generation != self.connection_generation:
+                return
+            self.observation_ack_pending = False
+            if not self.sio.connected or not isinstance(reply,dict): return
+            if reply.get('accepted') is True:
+                self.observations.enable_diagnostics(reply.get('diagnosticsSupported') is True)
+            elif reply.get('code') == 'OBSERVATION_INVALID' and 'diagnostics' in payload:
+                self.observations.enable_diagnostics(False)
+        self.sio.emit(event, payload, callback=acknowledged)
+
     def _run(self):
         while not self.stopped.is_set():
             try:
                 if self.sio.connected:
-                    self.observations.send(self.sio.emit)
+                    self.observations.send(self._emit_observation)
                 if self.dirty.is_set() or time.monotonic() >= self.next_poll:
                     self.dirty.clear()
                     self._fetch()  # Fetch at startup even if the socket is unavailable.
                 if not self.sio.connected:
+                    self.connection_generation += 1
+                    self.observation_ack_pending = False
+                    self.observations.enable_diagnostics(False)
                     token = self.auth.token()
                     self.sio.connect(self.auth.base_url, auth={"token": token}, transports=["websocket"],
                                      socketio_path="socket.io", wait_timeout=5)
                     self.dirty.set()  # Startup and every reconnect recover missed updates.
-                    self.observations.send(self.sio.emit, force=True)
-                self.observations.send(self.sio.emit)
+                    self.observations.send(self._emit_observation, force=True)
+                self.observations.send(self._emit_observation)
                 if self.dirty.wait(1):
                     self.dirty.clear()
                     self._fetch()  # Full authoritative snapshot; no stale push vs GET race.
@@ -198,7 +226,7 @@ class ConfigSync:
                 self.stopped.wait(5)
         try:
             if self.sio.connected:
-                self.observations.send(self.sio.emit, force=True)
+                self.observations.send(self._emit_observation, force=True)
         except Exception:
             pass
         self.sio.disconnect()
