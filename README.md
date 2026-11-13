@@ -16,6 +16,8 @@ Nhánh `feat/software-expansion-m1`: thêm **Nghỉ và phản hồi**, hộp th
 
 Bước 11/A6, nhánh `feat/local-command-history`: trong **Nghỉ và phản hồi → Xem lịch sử trên máy**, lọc thao tác chờ/đã gửi/bị từ chối/đã bỏ sau đối soát, xem chi tiết, thử gửi lệnh chờ và xuất toàn bộ lịch sử theo bộ lọc ra JSON. Dữ liệu giới hạn đúng tài khoản và máy chủ; file xuất chỉ gồm nghỉ/phản hồi lưu trên máy, không phải bản sao toàn bộ telemetry. Có kiểm SQLite/Qt offscreen; chưa nghiệm thu backend, webcam hoặc bản exe.
 
+Nhánh `feat/shoulder-elevation`: nhánh vai thêm đặc trưng `shoulder_raise` (khoảng cách dọc tai→vai / độ rộng vai, theo Estrada 2023) để bắt **nhún vai**, kể cả khi nhún cả hai vai (lệch vai không thấy), cùng cửa sổ 10 s đo cử động (`shoulder_motion_std`). `shoulder_raise_on/off` mặc định `null` = tắt cho tới khi chọn ngưỡng từ dữ liệu nhóm bằng `python posture_model/shoulder_threshold_stats.py --videos <thư mục clip>` (có `--demo`; cần `pip install -r posture_model/requirements-dev.txt`). Vẫn là cảnh báo `SHOULDER_TILT`, không đổi API/schema. Có kiểm bằng pose giả (`tests/test_shoulder_raise.py`); chưa kiểm webcam thật và chưa có ngưỡng thật.
+
 ## Desktop App
 
 Mở bằng nhấp đúp `MoUngDung.vbs`, hoặc `posture_model/dist/PostureMonitor/PostureMonitor.exe`

@@ -24,6 +24,10 @@ DEFAULTS = {
     # --- nhánh lệch vai (công thức)
     "shoulder_tilt_on": None,        # None = lấy từ posture_config.json (3.5°)
     "shoulder_tilt_off": None,       # (2.5°)
+    "shoulder_raise_on": None,       # nhún vai: (raise_base - raise)/raise_base > on (phân số, vd 0.08). None = TẮT cho tới khi có số liệu
+    "shoulder_raise_off": None,      # hết nhún vai khi < off (<= on)
+    "shoulder_motion_std": 2.0,      # độ lệch chuẩn lệch vai (độ) trong 10 s > mức này = đang cử động -> không báo; None = tắt
+    "shoulder_raise_motion_std": None,   # tương tự cho độ nâng vai (phân số); None = tắt cho tới khi có số liệu
     # --- nhánh khoảng cách
     "distance_on_cm": 50,            # gần hơn 50 cm -> quá gần
     "distance_off_cm": 55,           # xa hơn 55 cm mới hết (trễ)
@@ -58,7 +62,8 @@ DEFAULTS = {
 }
 
 LOCAL_ONLY_KEYS = {"calib_visible_ratio", "calib_max_neck_deg", "calib_min_neck_deg", "calib_max_trunk_deg",
-                   "calib_min_trunk_deg", "calib_still_deg", "calib_front_ratio"}   # không nhận từ máy chủ
+                   "calib_min_trunk_deg", "calib_still_deg", "calib_front_ratio",
+                   "shoulder_raise_on", "shoulder_raise_off", "shoulder_motion_std", "shoulder_raise_motion_std"}   # không nhận từ máy chủ
 
 LIVE_KEYS = {k for k in DEFAULTS if k not in ("calib_sec",)}   # các khoá áp dụng ngay khi đổi
 
@@ -79,7 +84,8 @@ class AppConfig:
         v = self.profile[k] if k in self.profile else self.remote[k] if k in self.remote else self.values.get(k)
         if v is None:                                # lấy mặc định của model nếu để null
             fallback = {"p_bad_threshold": "threshold", "shoulder_tilt_on": "shoulder_tilt_on",
-                        "shoulder_tilt_off": "shoulder_tilt_off"}.get(k)
+                        "shoulder_tilt_off": "shoulder_tilt_off", "shoulder_raise_on": "shoulder_raise_on",
+                        "shoulder_raise_off": "shoulder_raise_off"}.get(k)
             if fallback:
                 return self.model_cfg.get(fallback)
         return v
@@ -114,6 +120,10 @@ class AppConfig:
             off = self.model_cfg.get("shoulder_tilt_off") if off is None else off
             if on is not None and off is not None and off > on:
                 errs.append("shoulder_tilt_off must be <= shoulder_tilt_on")
+            ron = candidate["shoulder_raise_on"] if candidate["shoulder_raise_on"] is not None else self.model_cfg.get("shoulder_raise_on")
+            roff = candidate["shoulder_raise_off"] if candidate["shoulder_raise_off"] is not None else self.model_cfg.get("shoulder_raise_off")
+            if ron is not None and roff is not None and roff > ron:
+                errs.append("shoulder_raise_off must be <= shoulder_raise_on")
         if errs:
             print("app_config.json có giá trị không hợp lệ, giữ cấu hình cũ:", errs[:3])
             return set()
