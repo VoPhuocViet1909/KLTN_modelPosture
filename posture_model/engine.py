@@ -417,6 +417,9 @@ class PostureEngine:
                               authLost=bool(self.auth is not None and self.auth.lost),
                               lostKind=self.auth.lost_kind if self.auth is not None else None)
         self.sync_info['configStatus'] = self.config_sync.status() if self.config_sync and hasattr(self.config_sync, 'status') else None
+        if self.config_sync and hasattr(self.config_sync, 'observations') and hasattr(self.sender, 'diagnostics'):
+            config_ms = (self.sync_info['configStatus'] or {}).get('fetchApplyMs')
+            self.config_sync.observations.set_diagnostics(self.sender.diagnostics(config_ms=config_ms))
         if self.auth is not None and self.o.workspace_db:
             self.sync_info['workspaceStatus'] = f'Vị trí đang dùng: {self.o.workspace_name}.'
             remote_workspace = getattr(self.config_sync, 'workspace_current', None) if self.config_sync else None

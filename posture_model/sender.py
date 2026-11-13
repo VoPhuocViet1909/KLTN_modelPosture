@@ -54,6 +54,8 @@ class Sender(threading.Thread):
         self.last_error = None
         self.last_ok = None
         self.sent_total = 0
+        self._diagnostic_lock = threading.Lock()
+        self.last_attempt = self.last_attempt_ms = self.last_failure_code = None
         self._last_probe = 0.0
         self.probe_sec = 15.0           # đang mất mạng: bao lâu hỏi /health một lần
 
@@ -143,6 +145,17 @@ class Sender(threading.Thread):
                 return
 
     def _send(self, items):
+        started = time.monotonic()
+        with self._diagnostic_lock:
+            self.last_attempt = time.time()
+        try:
+            return self._deliver(items)
+        finally:
+            elapsed = round((time.monotonic() - started) * 1000)
+            with self._diagnostic_lock:
+                self.last_attempt_ms = elapsed if 0 <= elapsed <= 300000 else None
+
+    def _deliver(self, items):
         body = {"schemaVersion": "1.0", "deviceId": self.device_id, "sentAt": _now_iso(),
                 "events": [p for _, k, p in items if k == "event"],
                 "metrics": [p for _, k, p in items if k == "metric"]}
@@ -151,9 +164,14 @@ class Sender(threading.Thread):
         headers = {"Content-Type": "application/json", "X-Device-Id": self.device_id}
         try:
             if self.auth:
-                self.outbox.assert_context(self.auth.base_url, self.auth.user_id)
+                try:
+                    self.outbox.assert_context(self.auth.base_url, self.auth.user_id)
+                except ValueError:
+                    self._fail(ids, "Outbox source mismatch", offline=True, code="SOURCE_MISMATCH")
+                    return False
             if self.auth and any(payload.get("userId") != self.auth.user_id for _, _, payload in items):
-                raise AuthError("Outbox belongs to another user; use that account or a separate --outbox")
+                self._fail(ids, "Outbox belongs to another user; use that account or a separate --outbox", offline=True, code="SOURCE_MISMATCH")
+                return False
             if self.token and not self.auth:
                 headers["Authorization"] = f"Bearer {self.token}"
             req = urllib.request.Request(self.base_url + "/api/v1/telemetry/batch", data=data, headers=headers,
@@ -173,10 +191,11 @@ class Sender(threading.Thread):
             if e.code == 413 and self.batch_max > 1:             # lô quá lớn -> chia nhỏ
                 self.batch_max = max(1, self.batch_max // 2)
                 return True
-            self._fail(ids, f"HTTP {e.code}", offline=e.code >= 500 or e.code in (408, 429))
+            code = "AUTH_REQUIRED" if e.code in (401,403) else "THROTTLED" if e.code == 429 else "HTTP_SERVER" if e.code >= 500 else "HTTP_CLIENT"
+            self._fail(ids, f"HTTP {e.code}", offline=e.code >= 500 or e.code in (408, 429), code=code)
             return False
         except AuthError as e:
-            self._fail(ids, str(e), offline=True)
+            self._fail(ids, str(e), offline=True, code="AUTH_REQUIRED")
             return False
         except Exception:                                       # Không ghi URL/token vào outbox/log.
             self._fail(ids, "Telemetry unavailable or invalid response", offline=True)
@@ -186,14 +205,37 @@ class Sender(threading.Thread):
         self.outbox.mark_sent(ok)
         if self.online is not True:
             print("[sender] đã kết nối server")
-        self.online, self.last_ok, self.last_error = True, time.time(), None
-        self.sent_total += len(ok)
+        with self._diagnostic_lock:
+            self.online, self.last_ok, self.last_error = True, time.time(), None
+            self.last_failure_code = None
+            self.sent_total += len(ok)
         return True
 
-    def _fail(self, ids, err, offline):
+    def _fail(self, ids, err, offline, code="NETWORK_OR_RESPONSE"):
         self.outbox.mark_failed(ids, err)
         if offline and self.online is not False:
             print("[sender] mất kết nối server, dữ liệu giữ trong outbox:", err)
         if offline:
             self.online = False
-        self.last_error = err
+        with self._diagnostic_lock:
+            self.last_error = err
+            self.last_failure_code = code
+
+    def diagnostics(self, stats=None, config_ms=None):
+        if self.auth:
+            try:
+                self.outbox.assert_context(self.auth.base_url,self.auth.user_id)
+            except ValueError:
+                return None  # Queue metadata from another owner/server must not leave this machine.
+        stats = self.outbox.stats(include_diagnostics=True) if stats is None else stats
+        def timestamp(value):
+            return datetime.fromtimestamp(value, timezone.utc).isoformat() if value is not None else None
+        with self._diagnostic_lock:
+            failure = self.last_failure_code
+            state = ('NO_SERVER' if not self.base_url else failure if failure in ('AUTH_REQUIRED','SOURCE_MISMATCH')
+                     else 'RETRYING' if failure else 'OK' if self.last_ok is not None else 'NOT_SENT')
+            return dict(version=1, deliveryState=state, queued=self.q.qsize(), pending=stats['pending'],
+                retrying=stats.get('retrying',0), dead=stats['dead'], acceptedSinceStart=self.sent_total,
+                lastAttemptAt=timestamp(self.last_attempt), lastAcceptedAt=timestamp(self.last_ok),
+                oldestPendingAt=timestamp(stats.get('oldestPendingAt')), lastAttemptMs=self.last_attempt_ms,
+                configFetchApplyMs=config_ms, lastFailureCode=failure)

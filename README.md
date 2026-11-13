@@ -1,5 +1,7 @@
 # KLTN_modelPosture
 
+Bước15: [chẩn đoán hàng đợi và đồng bộ trên web](docs/device-diagnostics.md) bổ sung counters gửi dữ liệu, mốc ACK và thời gian tải/nạp cấu hình thực đo. Chỉ gửi metadata an toàn cho chủ thiết bị sau khi backend xác nhận hỗ trợ; không đổi model hoặc schema telemetry. Đã kiểm local/mock, chưa nghiệm thu webcam/exe/full stack thực.
+
 Bước 12/A5, nhánh `feat/workspace-profiles`: nút **Vị trí làm việc** tải hồ sơ trên web và đăng ký/gán đúng mã máy. **Áp dụng và hiệu chỉnh lại** chỉ dừng/mở phiên sau khi server xác nhận; dữ liệu chờ gửi vẫn giữ. Lựa chọn camera và bản ghi calibration nằm trong SQLite riêng theo API server/tài khoản/mã máy/vị trí. Góc baseline đã lưu không tự khôi phục; mỗi phiên đo lại. Web đổi hồ sơ thì app báo cần xác nhận; không âm thầm đổi baseline. GUI mới dùng hiệu chỉnh camera cục bộ ưu tiên hơn thiết lập cá nhân chung. Backend cần migration V5; chưa kiểm DB/webcam thật hoặc exe mới.
 
 Bước 12/A2, nhánh `feat/notification-policy`: web Cấu hình có chính sách giờ yên lặng/tập trung/giãn cách và kênh PC. Desktop lấy bản có phiên bản mỗi 30 giây hoặc khi reconnect, hiển thị chính sách đã nạp và lúc hết tập trung. Chỉ chặn toast/bíp/popup; banner và telemetry vẫn hoạt động, không phát bù thông báo cũ. IoT dùng cấu hình riêng. Giải thích cảnh báo bổ sung dữ liệu đo hợp lệ, không suy nguyên nhân cụ thể từ nhãn nhị phân. Đã kiểm local/mock; chưa kiểm stack/webcam hoặc build exe mới.
