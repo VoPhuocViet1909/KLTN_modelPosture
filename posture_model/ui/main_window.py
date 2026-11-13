@@ -27,6 +27,7 @@ class MainWindow(QMainWindow):
     streamRequested = Signal(object)
     progressRequested = Signal()
     telemetryRequested = Signal()
+    workspaceRequested = Signal()
 
     PAGE_LOGIN, PAGE_STATUS = 0, 1
 
@@ -135,6 +136,7 @@ class MainWindow(QMainWindow):
         self.account.setIndent(20)
         left.addWidget(self.account)
         self.config_status = QLabel()
+        self.config_status.setTextFormat(Qt.PlainText)
         self.config_status.setObjectName('note')
         self.config_status.setWordWrap(True)
         left.addWidget(self.config_status)
@@ -158,6 +160,10 @@ class MainWindow(QMainWindow):
         self.btn_telemetry.setMinimumHeight(44)
         self.btn_telemetry.clicked.connect(self.telemetryRequested)
         outer.addWidget(self.btn_telemetry)
+        self.btn_workspace = QPushButton('Vị trí làm việc')
+        self.btn_workspace.setMinimumHeight(44)
+        self.btn_workspace.clicked.connect(self.workspaceRequested)
+        outer.addWidget(self.btn_workspace)
         share = QFrame()
         share.setObjectName("panel")
         sl = QVBoxLayout(share)
@@ -274,6 +280,8 @@ class MainWindow(QMainWindow):
         self.config_status.setText(config_status_text(info.get('configStatus')) if info and info.get('hasServer') else '')
         if info and info.get('notificationStatus'):
             self.config_status.setText(self.config_status.text() + '\n' + info['notificationStatus'])
+        if info and info.get('workspaceStatus'):
+            self.config_status.setText(self.config_status.text() + '\n' + info['workspaceStatus'])
 
     def show_notice(self, alert_type, title, body):
         self.banner.show_alert(alert_type, title, body)

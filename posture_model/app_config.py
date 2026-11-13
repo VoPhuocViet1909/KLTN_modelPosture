@@ -69,13 +69,14 @@ class AppConfig:
         self.model_cfg = model_cfg or {}
         self.values = copy.deepcopy(DEFAULTS)
         self.remote = {}
+        self.profile = {}
         self._mtime = None
         if not os.path.exists(path):
             self.save()                              # tạo file mẫu cho người dùng sửa
         self.reload(force=True)
 
     def __getitem__(self, k):
-        v = self.remote[k] if k in self.remote else self.values.get(k)
+        v = self.profile[k] if k in self.profile else self.remote[k] if k in self.remote else self.values.get(k)
         if v is None:                                # lấy mặc định của model nếu để null
             fallback = {"p_bad_threshold": "threshold", "shoulder_tilt_on": "shoulder_tilt_on",
                         "shoulder_tilt_off": "shoulder_tilt_off"}.get(k)
@@ -140,6 +141,12 @@ class AppConfig:
         before = {k: self[k] for k in DEFAULTS}
         self.remote = copy.deepcopy(config)
         return {k for k in DEFAULTS if before[k] != self[k]}
+
+    def apply_profile(self, settings):
+        from workspace_profiles import CAMERA_DEFAULTS
+        if not isinstance(settings, dict) or set(settings) - set(CAMERA_DEFAULTS) or validate('config', settings):
+            raise ValueError('Invalid local camera profile')
+        self.profile = copy.deepcopy(settings)
 
     def snapshot(self):
         """Cấu hình đang dùng, gắn vào sự kiện gửi lên server."""

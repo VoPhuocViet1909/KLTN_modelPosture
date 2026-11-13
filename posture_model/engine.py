@@ -95,6 +95,9 @@ class EngineOptions:
     stream_camera: str = None
     stream_rtsp_base: str = "rtsp://127.0.0.1:8554"
     ffmpeg: str = "ffmpeg"
+    workspace_id: str = None
+    workspace_name: str = 'Chưa gán vị trí'
+    workspace_db: str = None
     render_legacy: bool = False        # vẽ vis_side/vis_front kiểu OpenCV cũ (CLI); Qt tự vẽ nên để False
     send: bool = True                  # False = chế độ không đăng nhập: chỉ nhắc tại chỗ, không ghi outbox, không gửi
 
@@ -324,6 +327,8 @@ class PostureEngine:
         apply_config(cfg, self.trackers, self.rem, self.pres)
         self.elog = EventLog(o.events, self.model_cfg.get("version"), wall_t0=time.time(), user_id=self.user_id(),
                              listeners=[self.notifier, self._relay_alert])
+        if self.auth is not None and o.workspace_db:
+            self.elog.listeners.append(self._save_profile_calibration)
         if self.iot is not None:
             self.elog.listeners.append(self.iot.on_event)
 
@@ -361,6 +366,11 @@ class PostureEngine:
         self.metrics_f.flush()
         self.sender.enqueue_metric(m)
         self.listener.on_metrics(m)
+
+    def _save_profile_calibration(self, event):
+        if event.get('eventType') == 'CALIBRATED':
+            from workspace_profiles import WorkspaceProfiles
+            WorkspaceProfiles(self.o.workspace_db).save_calibration(self.auth, self.elog.device_id, self.o.workspace_id, event)
 
     def _relay_alert(self, ev):
         if ev.get("notify"):
@@ -402,6 +412,18 @@ class PostureEngine:
                               authLost=bool(self.auth is not None and self.auth.lost),
                               lostKind=self.auth.lost_kind if self.auth is not None else None)
         self.sync_info['configStatus'] = self.config_sync.status() if self.config_sync and hasattr(self.config_sync, 'status') else None
+        if self.auth is not None and self.o.workspace_db:
+            self.sync_info['workspaceStatus'] = f'Vị trí đang dùng: {self.o.workspace_name}.'
+            remote_workspace = getattr(self.config_sync, 'workspace_current', None) if self.config_sync else None
+            if remote_workspace is not None:
+                device = remote_workspace.get('device')
+                workspace = remote_workspace.get('workspace')
+                assigned = device.get('workspaceId') if device else None
+                inactive = device and (device.get('status') != 'ACTIVE' or workspace and workspace.get('status') != 'ACTIVE')
+                if assigned != self.o.workspace_id or inactive:
+                    self.sync_info['workspaceStatus'] += ' Hồ sơ trên server đã đổi; mở Vị trí làm việc để xác nhận và hiệu chỉnh lại.'
+            if self.config_sync and getattr(self.config_sync, 'workspace_error', False):
+                self.sync_info['workspaceStatus'] += ' Chưa kiểm tra được hồ sơ trên server.'
         if self.sync_info['hasServer'] and hasattr(self.notifier, 'policy'):
             self.sync_info['notificationStatus'] = self.notifier.policy.status()
             if self.config_sync and getattr(self.config_sync, 'policy_error', False):

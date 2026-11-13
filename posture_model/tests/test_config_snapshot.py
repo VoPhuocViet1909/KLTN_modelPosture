@@ -14,6 +14,8 @@ def main():
     state = dict(version=3, revision='a'*64, effective={'bad_hold_sec': 8}, servedAt='2026-11-13T00:00:00Z')
     calls = []
     def open_request(request, **kwargs):
+        if '/devices/current?' in request.full_url:
+            return io.BytesIO(json.dumps(dict(device=None, workspace=None)).encode())
         if request.full_url.endswith('/notification-policy'):
             from notification_policy import DEFAULT
             return io.BytesIO(json.dumps(DEFAULT).encode())

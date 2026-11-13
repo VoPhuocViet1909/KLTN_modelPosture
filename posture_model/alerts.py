@@ -194,6 +194,10 @@ def _iso(ts):
     return datetime.fromtimestamp(ts, tz=timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
+def machine_device_id():
+    return 'dev_' + uuid.uuid5(uuid.NAMESPACE_DNS, platform.node() or 'pc').hex[:12]
+
+
 class EventLog:
     """
     Chuẩn hoá sự kiện theo schema trong kế hoạch rồi ghi 1 dòng JSON / sự kiện vào `path` (outbox).
@@ -208,7 +212,7 @@ class EventLog:
         self.path = path
         self.wall_t0 = time.time() if wall_t0 is None else wall_t0
         self.session_id = "s_" + uuid.uuid4().hex[:12]
-        self.device_id = device_id or "dev_" + uuid.uuid5(uuid.NAMESPACE_DNS, platform.node() or "pc").hex[:12]
+        self.device_id = device_id or machine_device_id()
         self.user_id = user_id
         self.model_version = model_version
         self.listeners = list(listeners)

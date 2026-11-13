@@ -57,6 +57,8 @@ class ConfigSync:
         self.policy_error = False
         self.policy_legacy = False
         self.policy_version = 0
+        self.workspace_current = None
+        self.workspace_error = False
         self.observations = ObservationBuffer()
         self.lock = threading.Lock()
         self.received = self.applied = self.result = self.taken = None
@@ -117,6 +119,26 @@ class ConfigSync:
         except Exception:
             self.policy_error = True  # Never log token-bearing request/response details.
 
+    def _fetch_workspace(self):
+        from alerts import machine_device_id
+        from workspace_profiles import request, validate_current
+        import urllib.parse
+        try:
+            current = request(self.auth, 'devices/current?' + urllib.parse.urlencode({'deviceId':machine_device_id()}))
+            validate_current(current, machine_device_id())
+            self.workspace_current = current
+            device = current['device']
+            if device is not None:
+                import uuid
+                uuid.UUID(device['deviceKey'])
+                if device['deviceId'] != machine_device_id():
+                    raise ValueError('Device profile mismatch')
+                if device.get('status') == 'ACTIVE':
+                    request(self.auth, f"devices/{device['deviceKey']}/heartbeat", {}, method='POST')
+            self.workspace_error = False
+        except Exception:
+            self.workspace_error = True
+
     def status(self):
         with self.lock:
             return copy.deepcopy(dict(received=self.received, applied=self.applied, result=self.result, fetchError=self.fetch_error))
@@ -147,6 +169,7 @@ class ConfigSync:
         self.snapshots.append(snapshot)
         self.next_poll = time.monotonic() + 30
         self._fetch_policy()
+        self._fetch_workspace()
 
     def _run(self):
         while not self.stopped.is_set():
