@@ -5,6 +5,7 @@ from PySide6.QtCore import QObject, QThread, Signal
 
 from engine import EngineListener
 from notifier import NotifierBase, format_message
+from notification_policy import NotificationPolicy
 
 
 class EngineBridge(QObject, EngineListener):
@@ -79,6 +80,7 @@ class QtNotifier(QObject, NotifierBase):
     def __init__(self, cfg, parent=None):
         QObject.__init__(self, parent)
         self.cfg = cfg
+        self.policy = NotificationPolicy()
 
     def __call__(self, ev):
         if not ev.get("notify"):

@@ -351,6 +351,7 @@ class AppController(QObject):
         return target
 
     def _start_session(self, auth, remember):
+        self.notifier.policy.reset()
         self.auth, self.remember = auth, remember
         self._command_stop = threading.Event()
         config_sync = None
@@ -366,6 +367,7 @@ class AppController(QObject):
 
     def _on_local(self):
         """'Dùng không đăng nhập': chỉ nhắc tại chỗ, không ghi outbox, không gửi gì."""
+        self.notifier.policy.reset()
         self._run_engine(dataclasses.replace(self.opts, send=False), None, None, "local")
         self.window.set_account(None)
 
@@ -505,11 +507,12 @@ class AppController(QObject):
                         record['state'] == 'SNOOZED' and record.get('snoozeUntil') and datetime.fromisoformat(record['snoozeUntil']) > datetime.now(timezone.utc)):
                     return
         self.window.show_notice(alert_type, title, body)
-        if self.cfg["notify_toast"] and self.tray.isVisible():
+        channels = self.notifier.policy.decide()
+        if self.cfg["notify_toast"] and channels['toast'] and self.tray.isVisible():
             self.tray.showMessage(title, body, QSystemTrayIcon.NoIcon, 6000)
-        if sev in ("MEDIUM", "HIGH") and self.cfg["notify_sound"] and not self.iot.mutes_pc_beep:
+        if sev in ("MEDIUM", "HIGH") and self.cfg["notify_sound"] and channels['sound'] and not self.iot.mutes_pc_beep:
             threading.Thread(target=beep, args=(sev,), daemon=True).start()
-        if sev == "HIGH" and self.cfg["notify_popup"] and self._dialog is None:
+        if sev == "HIGH" and self.cfg["notify_popup"] and channels['popup'] and self._dialog is None:
             self._dialog = AlertDialog(alert_type, title, body)
             self._dialog.destroyed.connect(lambda *_: setattr(self, "_dialog", None))
             self._dialog.show()

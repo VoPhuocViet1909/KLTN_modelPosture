@@ -202,6 +202,7 @@ class ApiSession:
                 (self.base_url + "/api/v1/telemetry/batch", "POST"),
                 (self.base_url + "/api/v1/auth/media-token", "POST"),
                 (self.base_url + "/api/v1/config/me", "GET"),
+                (self.base_url + "/api/v1/config/me/notification-policy", "GET"),
                 (self.base_url + "/api/v1/config/me/snapshot", "GET")):
             raise AuthError("Authenticated request outside session scope")
         token = self.token()
