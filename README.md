@@ -1,5 +1,7 @@
 # KLTN_modelPosture
 
+Bước 12/A2, nhánh `feat/notification-policy`: web Cấu hình có chính sách giờ yên lặng/tập trung/giãn cách và kênh PC. Desktop lấy bản có phiên bản mỗi 30 giây hoặc khi reconnect, hiển thị chính sách đã nạp và lúc hết tập trung. Chỉ chặn toast/bíp/popup; banner và telemetry vẫn hoạt động, không phát bù thông báo cũ. IoT dùng cấu hình riêng. Giải thích cảnh báo bổ sung dữ liệu đo hợp lệ, không suy nguyên nhân cụ thể từ nhãn nhị phân. Đã kiểm local/mock; chưa kiểm stack/webcam hoặc build exe mới.
+
 A6, nhánh `feat/config-offline-history` (13/11/2026): app hiển thị phiên bản cấu hình đã nạp, lấy lại lúc kết nối lại và kiểm mỗi 30 giây. **Dữ liệu trên máy** mở lịch sử sự kiện/số liệu theo tài khoản và máy chủ, lọc/phân trang/xuất tóm tắt JSON. Dữ liệu cũ chưa rõ máy chủ cần xác nhận trước khi gửi; ID/payload được giữ nguyên. Xem [hướng dẫn cấu hình và dữ liệu trên máy](api_handover/config-offline-history.md). Đã kiểm local/mock, chưa nghiệm thu backend/webcam thật hoặc build exe mới.
 
 Truyền hình lên dashboard, nhánh `feat/live-camera-setup` (13/11/2026): mở Thiết lập → Máy chủ video để lưu địa chỉ RTSP cho backend hiện tại; bật chia sẻ trong app, sao chép mã thiết bị hiển thị rồi dùng trên web. Cùng máy giữ `rtsp://127.0.0.1:8554`; khác máy cần MediaMTX/mạng được cấu hình trước. Xem [hướng dẫn camera](api_handover/live-camera.md). Mặc định không chia sẻ; không có video outbox hoặc ghi hình. Chưa đóng gói lại exe.

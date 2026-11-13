@@ -272,6 +272,8 @@ class MainWindow(QMainWindow):
         self.conn.set_info(info)
         from config_sync import config_status_text
         self.config_status.setText(config_status_text(info.get('configStatus')) if info and info.get('hasServer') else '')
+        if info and info.get('notificationStatus'):
+            self.config_status.setText(self.config_status.text() + '\n' + info['notificationStatus'])
 
     def show_notice(self, alert_type, title, body):
         self.banner.show_alert(alert_type, title, body)

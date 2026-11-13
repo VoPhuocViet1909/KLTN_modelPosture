@@ -75,7 +75,8 @@ def test_format_message_by_level():
     msgs = labels()["alert"]
     for lv in (1, 2, 3):
         _, b = format_message(dict(alertType="NECK_TRUNK", eventType="ALERT_REPEATED", level=lv), cfg)
-        assert b == msgs["NECK_TRUNK"]["messages"][str(lv)]
+        assert b.split('\n')[0] == msgs["NECK_TRUNK"]["messages"][str(lv)]
+        assert 'chưa phân loại nguyên nhân cụ thể' in b
     _, b = format_message(dict(alertType="SIT_TOO_LONG", eventType="REMINDER", level=3, sittingMin=92.4), cfg)
     assert b.startswith("Đã ngồi liền 92 phút.") and "tim mạch" in b
     _, b = format_message(dict(alertType="TOO_CLOSE", eventType="ALERT_REPEATED", level=1, snapshot={"distanceCm": 41}), cfg)

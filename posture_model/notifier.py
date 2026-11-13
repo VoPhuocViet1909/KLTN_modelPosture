@@ -12,6 +12,9 @@ import os
 import threading
 import time
 import unicodedata
+import math
+from datetime import datetime
+from notification_policy import NotificationPolicy
 
 from ui.tokens import labels
 
@@ -54,7 +57,29 @@ def format_message(ev, cfg=None):
         pass
     if ev.get("eventType") == "ALERT_REPEATED":
         title += labels()["ui"]["repeat_suffix"].format(level=ev.get("level", 2))
-    return title, body
+    evidence = explanation(ev)
+    return title, body + ('\n' + evidence if evidence else '')
+
+
+def explanation(ev):
+    """Use measured values only; a binary classifier cannot name a specific cause."""
+    facts = []
+    if ev.get('alertType') == 'NECK_TRUNK':
+        facts.append('Mô hình nhận diện tư thế sai; chưa phân loại nguyên nhân cụ thể.')
+    snapshot = ev.get('snapshot') or {}
+    for kind, key, label, unit in [('TOO_CLOSE', 'distanceCm', 'Khoảng cách đo được', 'cm'),
+                                  ('SHOULDER_TILT', 'tiltRel', 'Độ lệch vai đo được', '°')]:
+        value = snapshot.get(key)
+        if ev.get('alertType') == kind and isinstance(value, (float, int)) and not isinstance(value, bool) and math.isfinite(value):
+            facts.append(f'{label}: {value:.1f}{unit}.')
+    if ev.get('alertType') in ('NECK_TRUNK', 'TOO_CLOSE', 'SHOULDER_TILT') and ev.get('startedAt') and ev.get('ts'):
+        try:
+            elapsed = (datetime.fromisoformat(ev['ts'].replace('Z', '+00:00')) - datetime.fromisoformat(ev['startedAt'].replace('Z', '+00:00'))).total_seconds()
+            if math.isfinite(elapsed) and elapsed >= 0:
+                facts.append(f'Đợt cảnh báo đã kéo dài {elapsed:.0f} giây.')
+        except (ValueError, TypeError, AttributeError):
+            pass
+    return ' '.join(facts)
 
 
 class NotifierBase:
@@ -74,6 +99,7 @@ class Notifier(NotifierBase):
 
     def __init__(self, cfg, iot=None):
         self.cfg = cfg
+        self.policy = NotificationPolicy()
         self.iot = iot                  # IotNotifier: thiết bị ESP32 đang kêu thì máy tính không bíp nữa
         self.banner = None              # (hết hạn lúc, tiêu đề, nội dung, mức)
         self._popup_open = False
@@ -90,13 +116,14 @@ class Notifier(NotifierBase):
             return
         title, body = format_message(ev, self.cfg)
         sev = ev.get("severity", "LOW")
+        channels = self.policy.decide()
         self.banner = (time.time() + self.BANNER_SEC, title, body, sev)
         print(f"[{time.strftime('%H:%M:%S')}] {sev}: {title} – {body}")
-        if self.cfg["notify_toast"]:
+        if self.cfg["notify_toast"] and channels['toast']:
             self._run(self._show_toast, title, body)
-        if sev in ("MEDIUM", "HIGH") and self.cfg["notify_sound"] and not (self.iot and self.iot.mutes_pc_beep):
+        if sev in ("MEDIUM", "HIGH") and self.cfg["notify_sound"] and channels['sound'] and not (self.iot and self.iot.mutes_pc_beep):
             self._run(self._beep, sev)
-        if sev == "HIGH" and self.cfg["notify_popup"] and not self._popup_open:
+        if sev == "HIGH" and self.cfg["notify_popup"] and channels['popup'] and not self._popup_open:
             self._popup_open = True
             self._run(self._popup, title, body)
 

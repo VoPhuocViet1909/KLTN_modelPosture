@@ -14,6 +14,9 @@ def main():
     state = dict(version=3, revision='a'*64, effective={'bad_hold_sec': 8}, servedAt='2026-11-13T00:00:00Z')
     calls = []
     def open_request(request, **kwargs):
+        if request.full_url.endswith('/notification-policy'):
+            from notification_policy import DEFAULT
+            return io.BytesIO(json.dumps(DEFAULT).encode())
         calls.append(request.full_url)
         if isinstance(state.get('error'), int) and request.full_url.endswith('/snapshot'):
             raise urllib.error.HTTPError(request.full_url, state['error'], '', {}, None)

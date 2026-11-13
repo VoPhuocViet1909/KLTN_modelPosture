@@ -9,6 +9,7 @@ import re
 import copy
 from datetime import datetime, timezone
 from observation import ObservationBuffer
+from notification_policy import validate as validate_policy, DEFAULT as DEFAULT_POLICY
 
 
 def valid_snapshot(value):
@@ -52,6 +53,10 @@ class ConfigSync:
         self.dirty.set()
         self.stopped = threading.Event()
         self.snapshots = collections.deque(maxlen=1)
+        self.policies = collections.deque(maxlen=1)
+        self.policy_error = False
+        self.policy_legacy = False
+        self.policy_version = 0
         self.observations = ObservationBuffer()
         self.lock = threading.Lock()
         self.received = self.applied = self.result = self.taken = None
@@ -84,6 +89,34 @@ class ConfigSync:
                 self.applied = metadata if metadata['version'] is not None else None
         self.observations.set_config(metadata if metadata['version'] is not None else None)
 
+    def take_policy(self):
+        try:
+            return self.policies.pop()
+        except IndexError:
+            return None
+
+    def _fetch_policy(self):
+        try:
+            request = urllib.request.Request(self.auth.base_url + '/api/v1/config/me/notification-policy')
+            legacy = False
+            try:
+                with self.auth.open(request, timeout=5) as response:
+                    policy = json.loads(response.read(65536))
+            except urllib.error.HTTPError as error:
+                if error.code != 404:
+                    raise
+                policy = dict(DEFAULT_POLICY)
+                legacy = True
+            validate_policy(policy)
+            if policy['version'] < self.policy_version:
+                raise ValueError('Policy version regressed')
+            self.policies.append(policy)
+            self.policy_version = policy['version']
+            self.policy_legacy = legacy
+            self.policy_error = False
+        except Exception:
+            self.policy_error = True  # Never log token-bearing request/response details.
+
     def status(self):
         with self.lock:
             return copy.deepcopy(dict(received=self.received, applied=self.applied, result=self.result, fetchError=self.fetch_error))
@@ -113,6 +146,7 @@ class ConfigSync:
             self.fetch_error = False
         self.snapshots.append(snapshot)
         self.next_poll = time.monotonic() + 30
+        self._fetch_policy()
 
     def _run(self):
         while not self.stopped.is_set():

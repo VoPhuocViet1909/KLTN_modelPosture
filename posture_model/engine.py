@@ -402,6 +402,12 @@ class PostureEngine:
                               authLost=bool(self.auth is not None and self.auth.lost),
                               lostKind=self.auth.lost_kind if self.auth is not None else None)
         self.sync_info['configStatus'] = self.config_sync.status() if self.config_sync and hasattr(self.config_sync, 'status') else None
+        if self.sync_info['hasServer'] and hasattr(self.notifier, 'policy'):
+            self.sync_info['notificationStatus'] = self.notifier.policy.status()
+            if self.config_sync and getattr(self.config_sync, 'policy_error', False):
+                self.sync_info['notificationStatus'] += ' Chưa lấy được chính sách mới.'
+            elif self.config_sync and getattr(self.config_sync, 'policy_legacy', False):
+                self.sync_info['notificationStatus'] += ' Backend cũ chưa hỗ trợ chính sách nhắc.'
         self.listener.on_sync(self.sync_info)
 
     def _calib_payload(self, progress, cal_fail, now, front_available):
@@ -522,6 +528,13 @@ class PostureEngine:
             if now - last_cfg >= 2:
                 last_cfg = now
                 changed = cfg.reload()
+                if self.config_sync and hasattr(self.config_sync, 'take_policy') and hasattr(self.notifier, 'policy'):
+                    policy = self.config_sync.take_policy()
+                    if policy is not None:
+                        try:
+                            self.notifier.policy.apply(policy)
+                        except ValueError:
+                            print('Chính sách nhắc không hợp lệ; giữ bản đang dùng')
                 remote = self.config_sync.take() if self.config_sync else None
                 remote_ok = False
                 if remote is not None:
