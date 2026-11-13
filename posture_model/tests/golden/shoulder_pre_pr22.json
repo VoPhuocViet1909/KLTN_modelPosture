@@ -1,0 +1,84 @@
+{
+ "good": [
+  [
+   "CALIBRATED",
+   null,
+   3.0
+  ]
+ ],
+ "tilt": [
+  [
+   "CALIBRATED",
+   null,
+   3.0
+  ],
+  [
+   "ALERT_STARTED",
+   "SHOULDER_TILT",
+   7.3
+  ],
+  [
+   "ALERT_RESOLVED",
+   "SHOULDER_TILT",
+   30.0
+  ]
+ ],
+ "tilt_then_back": [
+  [
+   "CALIBRATED",
+   null,
+   3.0
+  ],
+  [
+   "ALERT_STARTED",
+   "SHOULDER_TILT",
+   7.3
+  ],
+  [
+   "ALERT_RESOLVED",
+   "SHOULDER_TILT",
+   13.3
+  ]
+ ],
+ "wave": [
+  [
+   "CALIBRATED",
+   null,
+   3.0
+  ],
+  [
+   "ALERT_STARTED",
+   "SHOULDER_TILT",
+   7.4
+  ],
+  [
+   "ALERT_RESOLVED",
+   "SHOULDER_TILT",
+   30.0
+  ]
+ ],
+ "shrug": [
+  [
+   "CALIBRATED",
+   null,
+   3.0
+  ]
+ ],
+ "bow_and_shrug": [
+  [
+   "CALIBRATED",
+   null,
+   3.0
+  ],
+  [
+   "ALERT_STARTED",
+   "NECK_TRUNK",
+   7.8
+  ],
+  [
+   "ALERT_RESOLVED",
+   "NECK_TRUNK",
+   30.0
+  ]
+ ]
+}

@@ -156,7 +156,9 @@ class PostureEngine:
     CALIB_RETRY_SEC = 3.0       # hiệu chỉnh không đạt: hiện lý do bấy nhiêu giây rồi tự làm lại
     MOTION_WIN_SEC = 10.0       # cửa sổ tính độ lệch chuẩn vai (Estrada 2023: cửa sổ 10 s)
     MOTION_MIN_SAMPLES = 20     # ít hơn thế thì chưa đủ để kết luận đang cử động
-    SHRUG_NECK_GUARD_DEG = 10.0 # góc cổ (so baseline) lớn hơn thế = đang cúi đầu, không tính là nhún vai
+    # RULA (McAtamney & Corlett 1993), điểm cổ: gập 0–10° = 1 điểm, > 10° = 2 điểm. Ở đây dùng góc cổ SO VỚI BASELINE lúc
+    # hiệu chỉnh (không phải góc tuyệt đối như RULA), nên chỉ là xấp xỉ: vượt mức này = đang cúi đầu, không tính là nhún vai.
+    SHRUG_NECK_GUARD_DEG = 10.0
     SYNC_EVERY = 1.0            # giây giữa hai lần đọc trạng thái gửi (SQLite)
 
     def __init__(self, opts, cfg=None, model_cfg=None, auth=None, config_sync=None, notifier=None,
@@ -751,15 +753,19 @@ class PostureEngine:
                                 r_good = (not neck_ok) or r_med < raise_off
                                 bad = True if (bad is True or r_bad) else False if (bad is False and r_good) else None
                             ok = np.isfinite(tv)
-                            # đang cử động (vươn vai, với đồ): độ lệch chuẩn trong 10 s quá lớn -> None (không báo, giữ nguyên)
-                            if ok and len(mot_hist) >= self.MOTION_MIN_SAMPLES:
-                                m_std, r_std = cfg["shoulder_motion_std"], cfg["shoulder_raise_motion_std"]
+                            # đang cử động (vươn vai, với đồ): độ lệch chuẩn trong 10 s quá lớn -> không báo.
+                            # Cả hai ngưỡng null (mặc định) thì bỏ qua hẳn: nhánh vai chạy y như trước PR #22.
+                            moving = False
+                            m_std, r_std = cfg["shoulder_motion_std"], cfg["shoulder_raise_motion_std"]
+                            if ok and (m_std is not None or r_std is not None) and len(mot_hist) >= self.MOTION_MIN_SAMPLES:
                                 ts = float(np.std([m[1] for m in mot_hist]))
                                 rs = float(np.nanstd([m[2] for m in mot_hist])) if raise_en else np.nan
-                                if (m_std is not None and ts > m_std) or (
-                                        r_std is not None and np.isfinite(rs) and rs > r_std):
-                                    ok = False
-                            emit(tr_tilt.update(bad if ok else None, now))
+                                moving = (m_std is not None and ts > m_std) or (
+                                    r_std is not None and np.isfinite(rs) and rs > r_std)
+                            if moving:
+                                tr_tilt.hold_reset()       # chưa CANH BAO: đếm lại alert_sec sau khi hết cử động
+                            else:
+                                emit(tr_tilt.update(bad if ok else None, now))
 
                     # ---- nhánh 3: khoảng cách mắt – màn hình
                     if sample_f and ed is not None:

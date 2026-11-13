@@ -95,6 +95,13 @@ class AlertTracker:
                 self.status = "GOOD"
         return events
 
+    def hold_reset(self):
+        """Đang cử động (vươn vai, với đồ): chưa CANH BAO thì xóa mốc bắt đầu ngồi sai, để sau khi hết cử động phải BAD
+        liên tục đủ alert_sec mới cảnh báo (không bật ngay vì mốc cũ). Đang CANH BAO thì giữ nguyên.
+        Không đổi alert_sec/clear_sec; update(None) vẫn như cũ."""
+        if not self.alerting:
+            self.bad_since = None
+
     def _resolved(self, now, end, reason):
         e = self._ev("ALERT_RESOLVED", now, startedAt=self.alert_started, endedAt=end,
                      durationSec=round(end - self.alert_started, 1), reason=reason, notify=False)

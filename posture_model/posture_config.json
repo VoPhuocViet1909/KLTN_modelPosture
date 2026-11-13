@@ -23,6 +23,7 @@
   "shoulder_tilt_off": 2.5,
   "shoulder_raise_on": null,
   "shoulder_raise_off": null,
+  "shoulder_motion_std": null,
   "min_shoulder_vis": 0.5,
   "n_train_windows": 9600,
   "bad_ratio": 0.567187488079071,
