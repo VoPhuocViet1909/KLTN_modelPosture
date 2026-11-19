@@ -75,12 +75,12 @@ def mk_clip(cid, name, dur, phases, cam="side", margin=1.0):
                 "T", phases, margin)
 
 
-def build(out, clips, side_fn, front_fn=lambda t: 0.0, side_fps=30, front_on=True, ed=None, countdown=0.5, beeps=None):
+def build(out, clips, side_fn, front_fn=lambda t: 0.0, side_fps=30, front_on=True, ed=None, countdown=0.5, beeps=None, front_fps=30):
     vdir = os.path.join(out, "_src")
     os.makedirs(vdir, exist_ok=True)
-    sv, fv = os.path.join(vdir, f"s{side_fps}.mp4"), os.path.join(vdir, "f.mp4")
+    sv, fv = os.path.join(vdir, f"s{side_fps}.mp4"), os.path.join(vdir, f"f{front_fps}.mp4")
     make_video(sv, 3, side_fps, label="SIDE")
-    make_video(fv, 3, 30, label="FRONT")
+    make_video(fv, 3, front_fps, label="FRONT")
     side = CameraSource("hông", sv).start()
     front = CameraSource("laptop", fv).start() if front_on else None
     ds, df = Det("side", side_fn), Det("front", front_fn)
@@ -364,6 +364,90 @@ def test_end_of_list():
         if stop:
             stop()
         shutil.rmtree(out, ignore_errors=True)
+
+
+def test_slow_sources_keep_real_duration():
+    """Nguồn giả 10 fps (hông) và 15 fps (laptop), clip 30 s -> mỗi file mp4 dài 30 s ±0,1 s ở đúng 30 fps khai báo."""
+    out = tempfile.mkdtemp(prefix="rec_")
+    sess = stop = None
+    try:
+        clip = mk_clip("A2", "GOOD_01", 30, [Phase(0, "", None)], "both")
+        sess, stop = build(out, [clip], lambda t: 10.0, side_fps=10, front_fps=15)
+        wait_samples(sess, 1.0)
+        drive(sess, timeout=90)
+        for cam, src_fps in (("SIDE", 10), ("FRONT", 15)):
+            p = os.path.join(out, f"P01_S01_GOOD_01_{cam}.mp4")
+            n, fps = count_frames(p)
+            assert abs(fps - 30) < 0.01, (cam, fps)
+            assert abs(n / fps - 30) <= 0.1, (cam, n, n / fps)
+            rows = [r for r in csv.DictReader(open(os.path.join(out, "P01_S01_GOOD_01_frames.csv"), encoding="utf-8"))
+                    if r["cam"] == ("side" if cam == "SIDE" else "front")]
+            got = [r for r in rows if r["video_frame"] != "-1"]
+            assert abs(len(got) - 30 * src_fps) <= 0.1 * 30 * src_fps + 3, (cam, len(got))   # khung thật ~ fps nguồn x 30 s
+        row = list(csv.DictReader(open(os.path.join(out, "sessions.csv"), encoding="utf-8-sig")))[0]
+        assert "FPS thấp" in row["ghi_chu"] and abs(float(row["fps_hong"]) - 10) < 1.5, row
+    finally:
+        if stop:
+            stop()
+        shutil.rmtree(out, ignore_errors=True)
+
+
+def test_check_cams_logic_and_run():
+    from recording import check_cams as cc
+    from recording.capture import CamConfig, parse_size
+    import record_session as rs
+    assert parse_size("640x480") == (640, 480)
+    try:
+        parse_size("abc")
+        raise AssertionError
+    except ValueError:
+        pass
+    # 4 cấu hình thực tế x 2 chế độ = 16 lượt
+    assert len(cc.all_configs()) == 8 and cc.all_configs()[0].label() == "DSHOW/MJPG/1280x720"
+    # chọn cấu hình tốt nhất theo cam; chênh < 1 fps thì lấy cấu hình ưu tiên (đứng trước)
+    cf = cc.all_configs()
+    rows = [dict(cfg=cf[0], mp=True, side=dict(fps=29.6, size=(1280, 720)), front=dict(fps=10.0, size=(1280, 720))),
+            dict(cfg=cf[1], mp=True, side=dict(fps=30.0, size=(640, 480)), front=dict(fps=29.9, size=(640, 480))),
+            dict(cfg=cf[2], mp=True, side=None, front=dict(fps=None, size=None)),
+            dict(cfg=cf[3], mp=False, side=dict(fps=60.0, size=(1, 1)), front=dict(fps=60.0, size=(1, 1)))]   # không MediaPipe: không xét
+    assert cc.pick_best(rows, "side")[0] is cf[0]
+    assert cc.pick_best(rows, "front")[0] is cf[1]
+    text, prof = cc.recommend(rows)
+    assert "Camera hông: tốt nhất DSHOW/MJPG/1280x720" in text and "ĐẠT" in text and prof["front"]["size"] == [640, 480]
+    assert "--front-size 640x480" in cc.recommend([dict(cfg=cf[0], mp=True, side=dict(fps=16.5, size=(1280, 720)),
+                                                          front=dict(fps=10.0, size=(1280, 720)))])[0]
+    assert "không mở được" in cc.format_table(rows)
+    dark = [dict(cfg=cf[0], mp=True, side=dict(fps=1.0, size=(640, 480), black=True), front=dict(fps=1.0, size=(640, 480), black=True))]
+    assert cc.pick_best(dark, "side") is None and "HÌNH ĐEN" in cc.format_table(dark) and "hình ĐEN" in cc.recommend(dark)[0]
+    d = tempfile.mkdtemp(prefix="prof_")
+    try:
+        pp = os.path.join(d, "p.json")
+        cc.save_profile(prof, pp)
+        assert cc.load_profile(pp)["front"] == CamConfig(cf[1].backend, cf[1].fourcc, (640, 480))
+        assert cc.load_profile(os.path.join(d, "none.json")) == {}
+        # chạy đo thật trên nguồn file (10 fps và 30 fps), có và không "MediaPipe"
+        vs, vf = os.path.join(d, "s.mp4"), os.path.join(d, "f.mp4")
+        make_video(vs, 3, 10, label="S")
+        make_video(vf, 3, 30, label="F")
+        logs = []
+        res = cc.run_check(dict(side=vs, front=vf), seconds=2.0, configs=cf[:2], log=logs.append,
+                           detector_factory=lambda: (lambda img, ts: (None, None)))
+        assert len(res) == 4 and len(logs) == 4
+        for r in res:
+            assert abs(r["side"]["fps"] - 10) < 2 and abs(r["front"]["fps"] - 30) < 4, r
+        assert "10." in cc.format_table(res)
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+    # CLI: --check-cams không cần --person; thiếu thì lỗi; --front-size ghi đè cỡ
+    assert rs.parse_args(["--check-cams"]).check_cams
+    try:
+        rs.parse_args([])
+        raise AssertionError
+    except SystemExit:
+        pass
+    a = rs.parse_args(["--person", "P01", "--session", "S01", "--front-size", "640x480", "--no-profile"])
+    cfgs = rs.cam_configs(a)
+    assert cfgs["front"].size == (640, 480) and cfgs["side"].size == (1280, 720) and cfgs["side"].fourcc == "MJPG"
 
 
 def test_low_fps_warning():
