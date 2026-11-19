@@ -34,3 +34,12 @@ api_handover/report.json
 .idea/
 .DS_Store
 Thumbs.db
+
+# Công cụ quay dữ liệu: video người thật + nhật ký chỉ lưu trên máy (riêng tư)
+video_tach/
+**/video_tach/
+*_frames.csv
+sessions.csv
+record_progress_*.json
+*.rec.mp4
+_cu/
