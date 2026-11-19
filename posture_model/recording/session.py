@@ -5,6 +5,7 @@ import csv
 import json
 import math
 import os
+import shutil
 import time
 from collections import deque
 from datetime import datetime
@@ -16,6 +17,7 @@ from posture_features import (FEATURES, apply_calibration, calibration_baseline,
                               sequence_angles, shoulder_raise, shoulder_tilt)
 from quality import dist_ok
 from recording.capture import FPS, ClipWriter
+from recording.disk import LOW_BYTES, disk_report, measured_rate
 from recording.script import KHONG_THAY, THEO_HIEU_LENH, PassCounter, check_status
 
 IDLE, COUNTDOWN, RECORDING, AWAIT_CM = "IDLE", "COUNTDOWN", "RECORDING", "AWAIT_CM"
@@ -47,7 +49,8 @@ def _num(x, nd=1):
 
 class Session:
     def __init__(self, clips, out_dir, person, session, sources, analyzer, cfg=None, ed=None, calib_clip=None,
-                 beeper=None, clock=time.perf_counter, countdown=3.0, fps=FPS, wall=datetime.now):
+                 beeper=None, clock=time.perf_counter, countdown=3.0, fps=FPS, wall=datetime.now,
+                 compressor=None, full_seconds=None, disk_usage=shutil.disk_usage):
         self.clips, self.out_dir, self.person, self.session = clips, out_dir, person, session
         self.sources = {k: v for k, v in sources.items() if v is not None}      # {"side": src, "front": src}
         self.analyzer, self.cfg, self.ed = analyzer, cfg or default_config(), ed
@@ -69,6 +72,12 @@ class Session:
         self.live = self._empty_live()
         self.calib_view = []                 # [(nhãn, ok)] danh sách kiểm khi đang / vừa xong A1
         self.t_count0 = 0.0
+        self.compressor = compressor
+        self.full_seconds = full_seconds or sum(c.duration for c in clips)
+        self._disk_usage = disk_usage
+        self.disk = None
+        self._disk_t = self._rate_t = -1e9
+        self._rate = None
         self._last_front_w = 640
         self._dist_hist = deque(maxlen=5)
         self._reset_run()
@@ -238,6 +247,25 @@ class Session:
     def count_left(self):
         return max(0.0, self.countdown_sec - (self.clock() - self.t_count0)) if self.state == COUNTDOWN else 0.0
 
+    def refresh_disk(self, force=False):
+        """Dung lượng ổ còn trống + ước tính số buổi. Free đọc mỗi 5 s; ước tính từ file đã quay mỗi 60 s."""
+        now = self.clock()
+        if not force and self.disk is not None and now - self._disk_t < 5.0:
+            return self.disk
+        compressed = bool(self.compressor and self.compressor.enabled)
+        if force or now - self._rate_t >= 60.0:
+            self._rate, self._rate_t = measured_rate(self.out_dir, compressed), now
+        self.disk, self._disk_t = disk_report(self.out_dir, self.full_seconds, compressed, self._disk_usage, self._rate), now
+        return self.disk
+
+    def compress_text(self):
+        c = self.compressor
+        if c is None or not c.enabled:
+            return ""
+        if c.busy:
+            return f"Đang nén nền {c.busy} file sang H.264…"
+        return f"Đã nén H.264, tiết kiệm {c.saved / 1e9:.2f} GB" if c.saved else ""
+
     def tick(self):
         self._update_warnings()
         if self.analyzer is not None:
@@ -393,6 +421,10 @@ class Session:
             if f is not None and f < FPS_WARN:
                 w.append(f"FPS camera {CAM_NAME[cam]} chỉ {f:.0f} (cần ≥ {FPS_WARN:.0f}): tắt ứng dụng khác dùng camera, "
                          "kiểm cổng USB / Wi-Fi.")
+        d = self.refresh_disk()
+        if d["low"]:
+            w.append(f"{d['text'].split(' còn')[0]} chỉ còn {d['free'] / 1e9:.1f} GB (dưới {LOW_BYTES / 1e9:.0f} GB): "
+                     "chuyển / nén video cũ trước khi quay tiếp.")
         a, b = self.sources.get("side"), self.sources.get("front")
         if a is not None and b is not None and a.latest() and b.latest():
             d = abs(a.latest()[0] - b.latest()[0])
@@ -442,6 +474,9 @@ class Session:
             return
         fps = {cam: self._real_fps(r) for cam, r in rows.items()}
         self._publish_files(clip, rows)
+        if self.compressor is not None:
+            for cam in self.writers:
+                self.compressor.submit(self.file_path(clip, cam))      # nén nền, không chặn clip kế
         pct = self.counter.pct
         note = []
         low = [c for c, f in fps.items() if f is not None and f < FPS_WARN]
@@ -488,6 +523,10 @@ class Session:
             else:
                 self.message += (f"  Tự chuyển sang {self.current.clip}. "
                                  "Bấm Space để bắt đầu (N = bỏ qua clip này).")
+        warn = self.compressor.warning_once() if self.compressor is not None else None
+        if warn:
+            self.message += "  ⚠ " + warn
+            self.message_level = "warn" if self.message_level == "ok" else self.message_level
         self.state = AWAIT_CM if clip.id == "E7" else IDLE
         if self.state == IDLE:
             self._write_row()
@@ -535,6 +574,8 @@ class Session:
         finals = [self.file_path(clip, cam) for cam in self.writers] + [frames_path]
         for p in finals:
             if os.path.exists(p):
+                if self.compressor is not None:
+                    self.compressor.wait_for(p)             # đang nén file này nền: chờ xong rồi mới chuyển
                 os.makedirs(cu, exist_ok=True)
                 stem, ext = os.path.splitext(os.path.basename(p))
                 n = 1

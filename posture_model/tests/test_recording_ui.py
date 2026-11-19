@@ -61,8 +61,22 @@ def main():
         pump(app, win, 1.0)
         assert "Hiệu lệnh thử" not in win.cue.text() and "Vỗ tay" in win.cue.text()       # tiếng Việt có dấu hiển thị đúng
         assert win.head.text().startswith("A1 · CALIBRATION") and "Bấm Space" in win.banner.text()
+        assert win.disk.isVisibleTo(win) and win.disk.text().startswith("Ổ ") and "buổi" in win.disk.text()   # dung lượng ổ ở màn hình sẵn sàng
         if shots:
             win.grab().save(os.path.join(shots, "01_san_sang.png"))
+        from types import SimpleNamespace
+        sess._disk_usage = lambda p: SimpleNamespace(free=3.2e9)             # dưới 5 GB: cảnh báo đỏ
+        sess.refresh_disk(True)
+        sess.tick()
+        win.refresh()
+        assert win.warn.isVisibleTo(win) and "chỉ còn 3.2 GB" in win.warn.text() and "#d03b3b" in win.disk.styleSheet()
+        if shots:
+            win.grab().save(os.path.join(shots, "07_o_dia_day.png"))
+        sess._disk_usage = lambda p: SimpleNamespace(free=68e9)
+        sess.refresh_disk(True)
+        sess.tick()
+        win.refresh()
+        assert not win.warn.isVisibleTo(win)
 
         # ---- Space: đếm ngược 3-2-1 rồi ghi
         QTest.keyClick(win, Qt.Key_Space)

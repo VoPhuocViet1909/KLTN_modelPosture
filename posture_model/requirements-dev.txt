@@ -1,3 +1,4 @@
-# Chỉ cho công cụ phân tích / thí nghiệm (shoulder_threshold_stats.py, recording/make_script.py). KHÔNG đưa vào requirements.txt của app.
+# Chỉ cho công cụ phân tích / thí nghiệm (shoulder_threshold_stats.py, recording/make_script.py, test nén video). KHÔNG đưa vào requirements.txt của app.
 scikit-learn==1.9.1
 openpyxl==3.1.5
+imageio-ffmpeg==0.8.1   # ffmpeg có libx264 cho tests/test_recording_compress.py (khi quay thật có thể dùng ffmpeg riêng trong PATH)
