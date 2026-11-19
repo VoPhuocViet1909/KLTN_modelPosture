@@ -109,7 +109,7 @@ def main():
         assert win.badge.text().startswith("ĐẠT") and "MỨC NHẸ" in win.goal.text()
         pump(app, win, 3.2)
         assert win.banner.text() == "MỨC RÕ HƠN", win.banner.text()
-        assert win.badge.text().startswith("CHƯA ĐỦ"), win.badge.text()
+        assert win.badge.text().startswith("CHƯA ĐỦ · đã đạt ") and win.badge.text().endswith("% thời gian"), win.badge.text()
         if shots:
             win.grab().save(os.path.join(shots, "05_muc_ro_hon_CHUA_DU.png"))
         while sess.state == RECORDING:
@@ -126,6 +126,17 @@ def main():
         dlg = CmDialog()
         dlg.edits[1].setText("61,5")
         assert dlg.values() == ["", 61.5, "", ""]
+
+        # ---- hết danh sách: màn hình xong buổi
+        assert sess.finished and win.summary.isVisibleTo(win) and not win.badge.isVisibleTo(win)
+        assert win.head.text() == "ĐÃ QUAY XONG BUỔI P01 S01" and "SHOULDER_TILT_L" in win.summary.text()
+        QTest.keyClick(win, Qt.Key_Space)
+        assert sess.state == IDLE and sess.finished
+        if shots:
+            win.grab().save(os.path.join(shots, "06_xong_buoi.png"))
+        QTest.keyClick(win, Qt.Key_R)
+        pump(app, win, 0.2)
+        assert not sess.finished and sess.current is e7 and not win.summary.isVisibleTo(win) and win.badge.isVisibleTo(win)
 
         # ---- Q: thoát, lưu tiến độ
         QTest.keyClick(win, Qt.Key_Q)

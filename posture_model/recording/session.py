@@ -96,6 +96,19 @@ class Session:
         return self.clips[min(self.idx, len(self.clips) - 1)] if self.clips else None
 
     @property
+    def finished(self):
+        """Đã qua clip cuối của danh sách: hiện màn hình tóm tắt, Space không làm gì."""
+        return self.idx >= len(self.clips) and self._override is None
+
+    def summary_rows(self):
+        """[(mã, tên clip, % đạt hoặc None, số lần quay, nên quay lại?)] cho từng clip trong danh sách."""
+        rows = []
+        for c in self.clips:
+            pct = (self.done.get(c.id) or {}).get("pct")
+            rows.append((c.id, c.clip, pct, self.takes.get(c.id, 0), pct is not None and pct < HINT_LOW_PCT))
+        return rows
+
+    @property
     def position(self):
         """(số thứ tự clip hiện tại trong danh sách đang quay, tổng)."""
         return min(self.idx, len(self.clips) - 1) + 1, len(self.clips)
@@ -104,7 +117,7 @@ class Session:
         if self.state != IDLE:
             return
         self._override = None
-        self.idx = min(self.idx + 1, len(self.clips) - 1)
+        self.idx = min(self.idx + 1, len(self.clips))          # ở clip cuối thì sang màn hình xong buổi
         self._save_progress()
 
     def press_prev(self):
@@ -138,7 +151,7 @@ class Session:
     # ------------------------------------------------------------------ tiến độ (Q thoát rồi mở lại)
     def _save_progress(self):
         cur = self.current
-        data = dict(person=self.person, session=self.session, next=cur.id if cur else None, takes=self.takes,
+        data = dict(person=self.person, session=self.session, next=None if self.finished or not cur else cur.id, takes=self.takes,
                     done=self.done, baseline=self.baseline)
         tmp = self.progress_path + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
@@ -159,7 +172,7 @@ class Session:
             return None
         nxt = next((c for c in self.clips if c.id == p.get("next")), None)
         if nxt is None:
-            return None
+            return f"Buổi {self.person} {self.session} đã quay xong. Mở màn hình tóm tắt?" if p.get("next") is None else None
         return f"Buổi {self.person} {self.session} đã quay {len(p['done'])} clip. Tiếp từ {nxt.id} {nxt.clip}?"
 
     def resume(self):
@@ -167,6 +180,8 @@ class Session:
         if not p:
             return False
         self.takes, self.done, self.baseline = p.get("takes", {}), p.get("done", {}), p.get("baseline")
+        if p.get("next") is None:
+            self.idx = len(self.clips)
         for i, c in enumerate(self.clips):
             if c.id == p.get("next"):
                 self.idx = i
@@ -175,7 +190,7 @@ class Session:
 
     # ------------------------------------------------------------------ phím Space / Esc / Q
     def press_start(self):
-        if self.state != IDLE or self.current is None:
+        if self.state != IDLE or self.current is None or self.finished:
             return False
         lost = [k for k, s in self.sources.items() if s.lost or s.latest() is None]
         if lost:
@@ -468,6 +483,11 @@ class Session:
                 self._override = None
             else:
                 self.idx = min(self.idx + 1, len(self.clips))
+            if self.finished:
+                self.message += "  Đây là clip cuối của danh sách."
+            else:
+                self.message += (f"  Tự chuyển sang {self.current.clip}. "
+                                 "Bấm Space để bắt đầu (N = bỏ qua clip này).")
         self.state = AWAIT_CM if clip.id == "E7" else IDLE
         if self.state == IDLE:
             self._write_row()

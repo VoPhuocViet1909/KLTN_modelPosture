@@ -327,6 +327,45 @@ def test_a1_fail_and_not_seen():
         shutil.rmtree(out, ignore_errors=True)
 
 
+def test_end_of_list():
+    """--only 2 clip: quay hết -> màn hình xong buổi; Space không làm gì; R quay lại được; N ở clip cuối cũng sang màn hình xong."""
+    out = tempfile.mkdtemp(prefix="rec_")
+    sess = stop = None
+    try:
+        a1 = mk_clip("A1", "CALIBRATION", 6, [Phase(0, "", None)], "both")
+        good = mk_clip("A2", "GOOD_01", 5, [Phase(0, "", [{"m": "neck", "max": 10}])])
+        clips = select_clips([a1, good], only="A1,GOOD_01")
+        sess, stop = build(out, clips, lambda t: 10.0)
+        wait_samples(sess, 0.5)
+        drive(sess)
+        assert not sess.finished and sess.current is good
+        assert "Tự chuyển sang GOOD_01" in sess.message and "Space để bắt đầu (N = bỏ qua clip này)" in sess.message
+        drive(sess)
+        assert sess.finished and sess.idx == len(clips) and "clip cuối" in sess.message
+        assert sess.press_start() is False and sess.state == IDLE          # Space không làm gì
+        rows = sess.summary_rows()
+        assert [r[0] for r in rows] == ["A1", "A2"] and rows[1][2] > 95 and rows[1][3] == 1 and not rows[1][4]
+        assert json.load(open(sess.progress_path, encoding="utf-8"))["next"] is None
+        assert "đã quay xong" in Session(clips, out, "P01", "S01", {}, None).resume_text()
+        s2 = Session(clips, out, "P01", "S01", {}, None)
+        assert s2.resume() and s2.finished
+        sess.press_redo()                                                  # R: quay lại clip vừa rồi
+        assert not sess.finished and sess.current is good
+        drive(sess)
+        assert sess.finished and sess.takes["A2"] == 2
+        sess.press_redo()
+        sess.press_next()                                                  # N ở clip cuối -> màn hình xong buổi
+        assert sess.finished
+        sess.press_prev()                                                  # B về clip trước (clip cuối)
+        assert not sess.finished and sess.current is good
+        sess.press_prev()
+        assert sess.current is a1
+    finally:
+        if stop:
+            stop()
+        shutil.rmtree(out, ignore_errors=True)
+
+
 def test_low_fps_warning():
     out = tempfile.mkdtemp(prefix="rec_")
     sess = stop = None

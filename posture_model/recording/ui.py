@@ -176,13 +176,18 @@ class RecorderWindow(QWidget):
             cams.addWidget(self.box_front, 1)
         else:
             self.box_front.hide()
+        self.summary = _label("", 15, 400, wrap=True)
+        self.summary.setTextFormat(Qt.RichText)
+        self.summary.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+        self.summary.hide()
+        cams.addWidget(self.summary, 1)
         root.addLayout(cams, 1)
 
         mid = QHBoxLayout()
         self.banner = _label("", 72, 700, color("primary"), align=Qt.AlignCenter)
         self.banner.setMinimumHeight(96)
         self.badge = _label("", 30, 700, "#ffffff", align=Qt.AlignCenter)
-        self.badge.setMinimumWidth(360)
+        self.badge.setMinimumWidth(560)
         self.badge.setMinimumHeight(64)
         mid.addWidget(self.banner, 1)
         mid.addWidget(self.badge)
@@ -263,6 +268,10 @@ class RecorderWindow(QWidget):
         clip = s.current
         if clip is None:
             return
+        self._summary_mode(s.finished)
+        if s.finished:
+            self._show_summary()
+            return
         live = s.live
         t = s.elapsed() if s.state == RECORDING else None
         n, total = s.position
@@ -291,13 +300,13 @@ class RecorderWindow(QWidget):
         # trạng thái đạt / chưa đủ
         st = live["status"]
         pct = s.counter.pct if s.counter is not None else None
-        txt = STATUS_TEXT[st] + ("" if pct is None or st == THEO_HIEU_LENH else f"  (đạt {pct:.0f}%)")
+        txt = STATUS_TEXT[st] + ("" if pct is None or st == THEO_HIEU_LENH else f" · đã đạt {pct:.0f}% thời gian")
         if s.state == COUNTDOWN:
             st, txt = THEO_HIEU_LENH, "Chuẩn bị"
         if clip.is_calibration:
             st, txt = THEO_HIEU_LENH, "Lấy baseline"
         self.badge.setText(txt)
-        self.badge.setStyleSheet(f"font-size:30px;font-weight:700;color:#ffffff;border-radius:10px;background:{STATUS_COLOR[st]};")
+        self.badge.setStyleSheet(f"font-size:26px;font-weight:700;color:#ffffff;border-radius:10px;background:{STATUS_COLOR[st]};")
 
         # số trực tiếp
         d = live["dist"]
@@ -313,6 +322,34 @@ class RecorderWindow(QWidget):
         self.warn.setVisible(bool(s.warnings))
         if cameras:
             self._show_cameras()
+
+    def _summary_mode(self, on):
+        for w in (self.box_side, self.box_front, self.banner, self.badge, self.bar, self.secs, self.numbers, self.calib):
+            if on:
+                w.hide()
+            elif w is not self.box_front or "front" in self.s.sources:
+                w.show()
+        self.summary.setVisible(on)
+
+    def _show_summary(self):
+        s = self.s
+        self.head.setText(f"ĐÃ QUAY XONG BUỔI {s.person} {s.session}")
+        self.cue.setText("Cảm ơn người tham gia!")
+        self.goal.setText("Space không làm gì  ·  R quay lại clip vừa rồi  ·  B về clip trước  ·  Q thoát")
+        rows = []
+        for cid, name, pct, takes, low in s.summary_rows():
+            txt = "chưa quay" if takes == 0 else ("theo hiệu lệnh" if pct is None else f"{pct:.0f}%")
+            col = status_color("BAD") if takes == 0 else "#9a6700" if low else color("foreground")
+            flag = " ← nên quay lại" if low else ""
+            rows.append(f"<tr style='color:{col}'><td>{cid}</td><td>{name}</td><td align='right'>{txt}</td>"
+                        f"<td align='right'>{max(0, takes - 1)}</td><td>{flag}</td></tr>")
+        low_n = sum(1 for r in s.summary_rows() if r[4])
+        head = "<tr><th align='left'>Mã</th><th align='left'>Clip</th><th>% đạt</th><th>Quay lại</th><th></th></tr>"
+        self.summary.setText(f"<p>{low_n} clip % thấp nên quay lại (R rồi chọn bằng B).</p>"
+                             f"<table cellspacing='3'>{head}{''.join(rows)}</table>")
+        self.message.setText(s.message)
+        self.message.setStyleSheet(f"font-size:22px;font-weight:600;color:{MSG_COLOR[s.message_level]};")
+        self.warn.setVisible(False)
 
     def _goal_text(self, clip, t):
         ph = clip.phase_at(t if t is not None else clip.margin)
