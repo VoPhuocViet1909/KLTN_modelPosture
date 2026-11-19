@@ -148,6 +148,27 @@ def test_script_and_timeline():
         pass
 
 
+def test_clip_writer_exact_frame_count():
+    """ClipWriter luôn ghi đúng round(duration*fps) khung, kể cả khi khung cuối rơi vào ô cuối (lỗi cũ: ghi dư 1 khung)."""
+    from recording.capture import ClipWriter
+    d = tempfile.mkdtemp(prefix="cw_")
+    try:
+        img = np.full((72, 128, 3), 80, np.uint8)
+        for name, times in (("sat_cuoi", [i / 30.0 for i in range(150)] + [4.99, 4.995]),
+                            ("cham_20fps", [i / 20.0 for i in range(100)]),
+                            ("nhieu", [i / 30.0 + (0.012 if i % 2 else -0.012) for i in range(1, 150)])):
+            p = os.path.join(d, name + ".mp4")
+            w = ClipWriter(p, 100.0, 5, 30)
+            for t in times:
+                w.push(100.0 + max(t, 0.0), img)
+            w.finish()
+            n, fps = count_frames(p)
+            assert w.ok and n == 150 and abs(fps - 30) < 0.01, (name, n)
+            assert sum(1 for r in w.rows if r[2] != -1) <= 150
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
 def test_check_status():
     chk = [{"m": "neck", "min": 20, "max": 30}]
     assert check_status(chk, {"neck": 25}) == DAT

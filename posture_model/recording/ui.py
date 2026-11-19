@@ -210,11 +210,12 @@ class RecorderWindow(QWidget):
         self.calib = _label("", 18, 500, color("muted-foreground"))
         self.message = _label("", 22, 600, wrap=True)
         self.disk = _label("", 16, 500, color("muted-foreground"), wrap=True)
+        self.compress = _label("", 16, 500, color("muted-foreground"), wrap=True)
         self.warn = _label("", 22, 700, "#ffffff", wrap=True)
         self.warn.setStyleSheet(f"font-size:22px;font-weight:700;color:#ffffff;background:{status_color('BAD')};padding:8px 12px;border-radius:6px;")
         self.warn.hide()
         self.hint = _label(KEYS_HINT, 14, 400, color("muted-foreground"))
-        for w in (self.numbers, self.calib, self.message, self.disk, self.warn, self.hint):
+        for w in (self.numbers, self.calib, self.message, self.disk, self.compress, self.warn, self.hint):
             root.addWidget(w)
 
         self.timer = QTimer(self)
@@ -329,11 +330,14 @@ class RecorderWindow(QWidget):
         """Dòng dung lượng ổ ở màn hình sẵn sàng (không hiện lúc đếm ngược / đang quay); đỏ khi dưới 5 GB."""
         s = self.s
         d = s.refresh_disk()
-        extra = s.compress_text()
-        self.disk.setText(d["text"] + (f"   ·   {extra}" if extra else ""))
+        self.disk.setText(d["text"])
         col = status_color("BAD") if d["low"] else color("muted-foreground")
         self.disk.setStyleSheet(f"font-size:16px;font-weight:{700 if d['low'] else 500};color:{col};")
         self.disk.setVisible(s.state in (IDLE, AWAIT_CM))
+        level, txt = s.compress_status()                               # luôn hiện: đang nén / đã nén / nén lỗi / không có ffmpeg
+        self.compress.setText("Nén video: " + txt if not txt.startswith(("Chưa nén", "Nén nền")) else txt)
+        ccol = {"ok": status_color("GOOD"), "info": color("muted-foreground"), "warn": "#9a6700", "bad": status_color("BAD")}[level]
+        self.compress.setStyleSheet(f"font-size:16px;font-weight:{700 if level == 'bad' else 500};color:{ccol};")
 
     def _summary_mode(self, on):
         for w in (self.box_side, self.box_front, self.banner, self.badge, self.bar, self.secs, self.numbers, self.calib):

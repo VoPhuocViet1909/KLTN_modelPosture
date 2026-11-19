@@ -213,6 +213,9 @@ class ClipWriter:
                     continue
                 while self.written < k and self.written < self.n_total:       # khung bị mất: lặp khung trước (hoặc khung này)
                     self._write(self._last if self._last is not None else frame)
+                if self.written >= self.n_total:                              # ô cuối đã đầy (khung sát cuối clip): không ghi dư
+                    self.rows.append((n, t, -1))
+                    continue
                 self.rows.append((n, t, self.written))
                 self._write(frame)
                 self._last = frame

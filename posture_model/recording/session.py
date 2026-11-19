@@ -258,13 +258,14 @@ class Session:
         self.disk, self._disk_t = disk_report(self.out_dir, self.full_seconds, compressed, self._disk_usage, self._rate), now
         return self.disk
 
+    def compress_status(self):
+        """(mức, chữ) trạng thái nén nền; ("info", "Nén nền: tắt") nếu không dùng bộ nén."""
+        if self.compressor is None:
+            return "info", "Nén nền: tắt (--no-compress)"
+        return self.compressor.status()
+
     def compress_text(self):
-        c = self.compressor
-        if c is None or not c.enabled:
-            return ""
-        if c.busy:
-            return f"Đang nén nền {c.busy} file sang H.264…"
-        return f"Đã nén H.264, tiết kiệm {c.saved / 1e9:.2f} GB" if c.saved else ""
+        return self.compress_status()[1]
 
     def tick(self):
         self._update_warnings()

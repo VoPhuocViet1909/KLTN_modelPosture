@@ -172,7 +172,7 @@ def test_background_compressor_and_no_ffmpeg():
         raw = os.path.join(d, "P01_S01_R_FRONT.mp4")
         write_video(raw, 30)
         h = sha(raw)
-        c2 = Compressor(None, log=lambda m: None)
+        c2 = Compressor(False, log=lambda m: None)
         assert not c2.enabled and c2.submit(raw) is False
         assert "ffmpeg" in c2.warning_once() and c2.warning_once() is None
         assert sha(raw) == h
@@ -220,7 +220,7 @@ def test_session_compresses_in_background():
         tr.wait_samples(sess, 0.5)
         tr.drive(sess)
         assert sess.state == "IDLE" and comp.busy > 0                       # đang nén nền mà đã sẵn sàng clip kế
-        assert "Đang nén nền" in sess.compress_text()
+        assert "đang nén" in sess.compress_text()
         sess.press_redo()                                                    # quay lại ngay: phải chờ nén xong file cũ rồi mới chuyển
         tr.drive(sess)
         assert comp.wait_all(90)
@@ -236,6 +236,52 @@ def test_session_compresses_in_background():
         shutil.rmtree(out, ignore_errors=True)
 
 
+def test_record_session_path_compresses():
+    """Đúng đường chạy thật: record_session.parse_args -> build (không truyền --ffmpeg) -> Space -> hết clip -> file thành H.264."""
+    import record_session as rs
+    out = tempfile.mkdtemp(prefix="rec_")
+    sess = shutdown = None
+    try:
+        sv, fv = os.path.join(out, "s.mp4"), os.path.join(out, "f.mp4")
+        tr.make_video(sv, 3, 30, label="SIDE")
+        tr.make_video(fv, 3, 30, label="FRONT")
+        args = rs.parse_args(["--person", "P99", "--session", "S03", "--side-video", sv, "--front-video", fv,
+                              "--out", out, "--no-face", "--countdown", "0.5", "--only", "GOOD_01"])
+        assert args.ffmpeg is None                                         # người dùng không truyền --ffmpeg
+        sess, shutdown = rs.build(args)
+        assert sess.compressor is not None and sess.compressor.enabled, "không truyền --ffmpeg phải tự dò ra ffmpeg"
+        assert sess.compressor.ffmpeg == FF
+        sess.clips[0].duration, sess.clips[0].margin = 5, 1.0
+        tr.wait_samples(sess, 0.5)
+        tr.drive(sess)
+        assert sess.compressor.wait_all(90)
+        for cam in ("SIDE", "FRONT"):
+            p = os.path.join(out, f"P99_S03_GOOD_01_{cam}.mp4")
+            n, fps, cc = probe(p)
+            assert n == 150 and fps == 30.0 and cp.is_h264(cc), (cam, n, fps, cc)
+        lvl, txt = sess.compress_status()
+        assert lvl == "ok" and "đã nén" in txt and not sess.compressor.failed, (lvl, txt)
+        assert "Không tìm thấy ffmpeg" not in sess.message
+        # --ffmpeg trỏ sai file: tự dò tiếp chứ không tắt nén
+        a2 = rs.parse_args(["--person", "P99", "--session", "S03", "--ffmpeg", os.path.join(out, "khong_co.exe")])
+        assert Compressor(a2.ffmpeg, log=lambda m: None).enabled
+        # nén lỗi: giao diện phải báo lý do và giữ bản gốc
+        bad = Compressor(FF, log=lambda m: None, runner=lambda cmd: (1, "Unknown encoder"))
+        p = os.path.join(out, "P99_S03_X_SIDE.mp4")
+        write_video(p, 30)
+        h = sha(p)
+        bad.submit(p)
+        assert bad.wait_all(60) and sha(p) == h
+        lvl, txt = bad.status()
+        assert lvl == "bad" and "nén lỗi" in txt and "Unknown encoder" in txt and "P99_S03_X_SIDE.mp4" in txt, txt
+        lvl, txt = Compressor(False, log=lambda m: None).status()
+        assert lvl == "bad" and "không tìm thấy ffmpeg" in txt
+    finally:
+        if shutdown:
+            shutdown()
+        shutil.rmtree(out, ignore_errors=True)
+
+
 def test_session_warns_once_without_ffmpeg():
     out = tempfile.mkdtemp(prefix="rec_")
     sess = stop = None
@@ -243,7 +289,7 @@ def test_session_warns_once_without_ffmpeg():
         a = tr.mk_clip("A2", "GOOD_01", 5, [Phase(0, "", None)], "side")
         b = tr.mk_clip("A3", "GOOD_02", 5, [Phase(0, "", None)], "side")
         sess, stop = tr.build(out, [a, b], lambda t: 10.0, front_on=False)
-        sess.compressor = Compressor(None, log=lambda m: None)
+        sess.compressor = Compressor(False, log=lambda m: None)
         tr.wait_samples(sess, 0.5)
         tr.drive(sess)
         assert "Không tìm thấy ffmpeg" in sess.message
