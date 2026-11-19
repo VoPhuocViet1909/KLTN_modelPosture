@@ -209,11 +209,12 @@ class RecorderWindow(QWidget):
         self.numbers = _label("", 22, 500)
         self.calib = _label("", 18, 500, color("muted-foreground"))
         self.message = _label("", 22, 600, wrap=True)
+        self.disk = _label("", 16, 500, color("muted-foreground"), wrap=True)
         self.warn = _label("", 22, 700, "#ffffff", wrap=True)
         self.warn.setStyleSheet(f"font-size:22px;font-weight:700;color:#ffffff;background:{status_color('BAD')};padding:8px 12px;border-radius:6px;")
         self.warn.hide()
         self.hint = _label(KEYS_HINT, 14, 400, color("muted-foreground"))
-        for w in (self.numbers, self.calib, self.message, self.warn, self.hint):
+        for w in (self.numbers, self.calib, self.message, self.disk, self.warn, self.hint):
             root.addWidget(w)
 
         self.timer = QTimer(self)
@@ -268,6 +269,7 @@ class RecorderWindow(QWidget):
         clip = s.current
         if clip is None:
             return
+        self._refresh_disk()
         self._summary_mode(s.finished)
         if s.finished:
             self._show_summary()
@@ -322,6 +324,16 @@ class RecorderWindow(QWidget):
         self.warn.setVisible(bool(s.warnings))
         if cameras:
             self._show_cameras()
+
+    def _refresh_disk(self):
+        """Dòng dung lượng ổ ở màn hình sẵn sàng (không hiện lúc đếm ngược / đang quay); đỏ khi dưới 5 GB."""
+        s = self.s
+        d = s.refresh_disk()
+        extra = s.compress_text()
+        self.disk.setText(d["text"] + (f"   ·   {extra}" if extra else ""))
+        col = status_color("BAD") if d["low"] else color("muted-foreground")
+        self.disk.setStyleSheet(f"font-size:16px;font-weight:{700 if d['low'] else 500};color:{col};")
+        self.disk.setVisible(s.state in (IDLE, AWAIT_CM))
 
     def _summary_mode(self, on):
         for w in (self.box_side, self.box_front, self.banner, self.badge, self.bar, self.secs, self.numbers, self.calib):

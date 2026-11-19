@@ -21,6 +21,9 @@ def parse_args(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0], formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--person", help="mã người, vd P01")
     ap.add_argument("--session", help="mã buổi, vd S01")
+    ap.add_argument("--compress-dir", help="chỉ nén lại các _SIDE/_FRONT.mp4 đã quay trong thư mục này sang H.264 (cần ffmpeg), rồi thoát")
+    ap.add_argument("--ffmpeg", help="đường dẫn ffmpeg (mặc định: biến FFMPEG, PATH, rồi gói imageio-ffmpeg)")
+    ap.add_argument("--no-compress", action="store_true", help="không nén nền sau mỗi clip (giữ file mp4v gốc, ~110 MB/phút)")
     ap.add_argument("--check-cams", action="store_true",
                     help="chỉ đo FPS thật của từng camera ở nhiều cấu hình, in bảng + đề xuất, rồi thoát")
     ap.add_argument("--check-seconds", type=float, default=10.0, help="giây đo mỗi cấu hình khi --check-cams (mặc định 10)")
@@ -39,8 +42,8 @@ def parse_args(argv=None):
     ap.add_argument("--script", help="file kịch bản JSON khác (mặc định recording/script_v2.json)")
     ap.add_argument("--countdown", type=float, default=3.0, help="giây đếm ngược trước khi ghi (mặc định 3)")
     a = ap.parse_args(argv)
-    if not a.check_cams and not (a.person and a.session):
-        ap.error("cần --person và --session (trừ khi dùng --check-cams)")
+    if not (a.check_cams or a.compress_dir) and not (a.person and a.session):
+        ap.error("cần --person và --session (trừ khi dùng --check-cams hoặc --compress-dir)")
     return a
 
 
@@ -65,6 +68,7 @@ def build(args):
     from realtime_posture import PoseDetector
     from recording.analyzer import Analyzer
     from recording.capture import CameraSource, opener_for
+    from recording.compress import Compressor
     from recording.script import load_script, select_clips
     from recording.session import Session
 
@@ -90,10 +94,18 @@ def build(args):
     det_f = PoseDetector(task) if front else None
     an = Analyzer(side, front, det_s, det_f, ed).start()
     from recording.ui import make_beeper
+    comp = None if args.no_compress else Compressor(args.ffmpeg)
     sess = Session(clips, args.out, args.person, args.session, dict(side=side, front=front), an, ed=ed,
-                   calib_clip=calib, beeper=make_beeper(), countdown=args.countdown)
+                   calib_clip=calib, beeper=make_beeper(), countdown=args.countdown, compressor=comp,
+                   full_seconds=sum(c.duration for c in full))
+    if comp is not None:
+        from recording.compress import clean_stale
+        clean_stale(args.out)
 
     def shutdown():
+        if comp is not None and comp.busy:
+            print(f"Đang nén nốt {comp.busy} file, đừng tắt máy…")
+            comp.wait_all()
         an.stop()
         side.close()
         if front:
@@ -103,6 +115,9 @@ def build(args):
 
 def main(argv=None):
     args = parse_args(argv)
+    if args.compress_dir:
+        from recording.compress import compress_dir
+        return compress_dir(args.compress_dir, args.ffmpeg)
     if args.check_cams:
         from recording.check_cams import main as check_main
         return check_main(args.side_video or args.side, args.front_video or args.front, args.check_seconds)
