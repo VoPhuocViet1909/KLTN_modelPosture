@@ -1,0 +1,848 @@
+{
+ "_source": "TaiLieu/KichBan_Quay_DataTrain_10Nguoi_v2.xlsx, sheet 'Kịch bản clip' (sinh bởi recording/make_script.py)",
+ "margin_sec": 3,
+ "clips": [
+  {
+   "id": "A1",
+   "block": "A",
+   "clip": "CALIBRATION",
+   "duration": 20,
+   "cam": "both",
+   "cam_text": "cả hai",
+   "cue": "Vỗ tay một cái, rồi ngồi thẳng, tựa lưng, nhìn giữa màn hình, giữ yên.",
+   "goal": "baseline 15 s",
+   "phases": [
+    {
+     "start": 0,
+     "label": "",
+     "check": null
+    }
+   ]
+  },
+  {
+   "id": "A2",
+   "block": "A",
+   "clip": "GOOD_01",
+   "duration": 60,
+   "cam": "side",
+   "cam_text": "hông",
+   "cue": "Ngồi đúng tư thế, gõ lại đoạn văn trên màn hình.",
+   "goal": "cổ < 10°",
+   "phases": [
+    {
+     "start": 0,
+     "label": "",
+     "check": [
+      {
+       "m": "neck",
+       "max": 10
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "A3",
+   "block": "A",
+   "clip": "GOOD_02",
+   "duration": 60,
+   "cam": "side",
+   "cam_text": "hông",
+   "cue": "Ngồi đúng, dùng chuột đọc và cuộn trang web.",
+   "goal": "cổ < 10°",
+   "phases": [
+    {
+     "start": 0,
+     "label": "",
+     "check": [
+      {
+       "m": "neck",
+       "max": 10
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "A4",
+   "block": "A",
+   "clip": "NATURAL_01",
+   "duration": 120,
+   "cam": "side",
+   "cam_text": "hông",
+   "cue": "Làm việc bình thường, không cần chú ý tư thế.",
+   "goal": "teacher chấm; dùng đo báo giả",
+   "phases": [
+    {
+     "start": 0,
+     "label": "",
+     "check": null
+    }
+   ]
+  },
+  {
+   "id": "B1",
+   "block": "B",
+   "clip": "FORWARD_HEAD_L1",
+   "duration": 45,
+   "cam": "side",
+   "cam_text": "hông",
+   "cue": "Đưa đầu ra trước một chút như đọc chữ nhỏ, lưng giữ nguyên.",
+   "goal": "cổ 20–30°",
+   "phases": [
+    {
+     "start": 0,
+     "label": "",
+     "check": [
+      {
+       "m": "neck",
+       "min": 20,
+       "max": 30
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "B2",
+   "block": "B",
+   "clip": "FORWARD_HEAD_L2",
+   "duration": 45,
+   "cam": "side",
+   "cam_text": "hông",
+   "cue": "Cúi rõ hơn, như nhìn điện thoại đặt trên bàn.",
+   "goal": "cổ > 30°",
+   "phases": [
+    {
+     "start": 0,
+     "label": "",
+     "check": [
+      {
+       "m": "neck",
+       "min": 30
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "B3",
+   "block": "B",
+   "clip": "LEAN_FORWARD_L1",
+   "duration": 45,
+   "cam": "side",
+   "cam_text": "hông",
+   "cue": "Nghiêng cả người về phía màn hình từ hông, lưng thẳng.",
+   "goal": "thân 20–30°",
+   "phases": [
+    {
+     "start": 0,
+     "label": "",
+     "check": [
+      {
+       "m": "trunk",
+       "min": 20,
+       "max": 30
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "B4",
+   "block": "B",
+   "clip": "LEAN_FORWARD_L2",
+   "duration": 45,
+   "cam": "side",
+   "cam_text": "hông",
+   "cue": "Chống hai khuỷu tay lên bàn, nhô sát màn hình.",
+   "goal": "thân > 30°",
+   "phases": [
+    {
+     "start": 0,
+     "label": "",
+     "check": [
+      {
+       "m": "trunk",
+       "min": 30
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "B5",
+   "block": "B",
+   "clip": "SLOUCH_L1",
+   "duration": 45,
+   "cam": "side",
+   "cam_text": "hông",
+   "cue": "Thả lỏng lưng cho cong, vai đổ xuống.",
+   "goal": "thân và cổ > 20°",
+   "phases": [
+    {
+     "start": 0,
+     "label": "",
+     "check": [
+      {
+       "m": "trunk",
+       "min": 20
+      },
+      {
+       "m": "neck",
+       "min": 20
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "B6",
+   "block": "B",
+   "clip": "SLOUCH_L2",
+   "duration": 45,
+   "cam": "side",
+   "cam_text": "hông",
+   "cue": "Trượt hông ra mép ghế, lưng cong hẳn, đầu chúi.",
+   "goal": "rõ hơn L1",
+   "phases": [
+    {
+     "start": 0,
+     "label": "",
+     "check": [
+      {
+       "m": "trunk",
+       "min": 20
+      },
+      {
+       "m": "neck",
+       "min": 20
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "B7",
+   "block": "B",
+   "clip": "LEAN_BACKWARD_L1",
+   "duration": 45,
+   "cam": "side",
+   "cam_text": "hông",
+   "cue": "Ngả ra sau tựa ghế, vẫn nhìn màn hình.",
+   "goal": "thân −15 đến −25°",
+   "phases": [
+    {
+     "start": 0,
+     "label": "",
+     "check": [
+      {
+       "m": "trunk",
+       "min": -25,
+       "max": -15
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "B8",
+   "block": "B",
+   "clip": "LEAN_BACKWARD_L2",
+   "duration": 45,
+   "cam": "side",
+   "cam_text": "hông",
+   "cue": "Ngả hẳn như đang xem phim.",
+   "goal": "thân < −25°",
+   "phases": [
+    {
+     "start": 0,
+     "label": "",
+     "check": [
+      {
+       "m": "trunk",
+       "max": -25
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "B9",
+   "block": "B",
+   "clip": "NECK_EXTENSION",
+   "duration": 45,
+   "cam": "side",
+   "cam_text": "hông",
+   "cue": "Ngửa cằm nhìn mảnh giấy dán trên màn hình.",
+   "goal": "cổ ngửa > 15°",
+   "phases": [
+    {
+     "start": 0,
+     "label": "",
+     "check": [
+      {
+       "m": "neck",
+       "max": -15
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "B10",
+   "block": "B",
+   "clip": "CHIN_ON_HAND_L",
+   "duration": 30,
+   "cam": "side",
+   "cam_text": "hông",
+   "cue": "Chống cằm bằng tay trái, khuỷu tay trên bàn, vẫn nhìn màn hình.",
+   "goal": "tay chạm cằm",
+   "phases": [
+    {
+     "start": 0,
+     "label": "",
+     "check": null
+    }
+   ]
+  },
+  {
+   "id": "B11",
+   "block": "B",
+   "clip": "CHIN_ON_HAND_R",
+   "duration": 30,
+   "cam": "side",
+   "cam_text": "hông",
+   "cue": "Như B10, dùng tay phải.",
+   "goal": "tay chạm cằm",
+   "phases": [
+    {
+     "start": 0,
+     "label": "",
+     "check": null
+    }
+   ]
+  },
+  {
+   "id": "C1",
+   "block": "C",
+   "clip": "TRANSITION_01",
+   "duration": 120,
+   "cam": "side",
+   "cam_text": "hông",
+   "cue": "Đổi tư thế mỗi 15 s theo đồng hồ: GOOD → FORWARD_HEAD → GOOD → LEAN_FORWARD → GOOD → SLOUCH → GOOD → LEAN_BACKWARD.",
+   "goal": "đo độ trễ phát hiện",
+   "phases": [
+    {
+     "start": 0,
+     "label": "GOOD",
+     "check": [
+      {
+       "m": "neck",
+       "max": 10
+      }
+     ]
+    },
+    {
+     "start": 15,
+     "label": "FORWARD_HEAD",
+     "check": [
+      {
+       "m": "neck",
+       "min": 20
+      }
+     ]
+    },
+    {
+     "start": 30,
+     "label": "GOOD",
+     "check": [
+      {
+       "m": "neck",
+       "max": 10
+      }
+     ]
+    },
+    {
+     "start": 45,
+     "label": "LEAN_FORWARD",
+     "check": [
+      {
+       "m": "trunk",
+       "min": 20
+      }
+     ]
+    },
+    {
+     "start": 60,
+     "label": "GOOD",
+     "check": [
+      {
+       "m": "neck",
+       "max": 10
+      }
+     ]
+    },
+    {
+     "start": 75,
+     "label": "SLOUCH",
+     "check": [
+      {
+       "m": "trunk",
+       "min": 20
+      },
+      {
+       "m": "neck",
+       "min": 20
+      }
+     ]
+    },
+    {
+     "start": 90,
+     "label": "GOOD",
+     "check": [
+      {
+       "m": "neck",
+       "max": 10
+      }
+     ]
+    },
+    {
+     "start": 105,
+     "label": "LEAN_BACKWARD",
+     "check": [
+      {
+       "m": "trunk",
+       "max": -15
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "D1",
+   "block": "D",
+   "clip": "TRANSIENT_DRINK",
+   "duration": 20,
+   "cam": "side",
+   "cam_text": "hông",
+   "cue": "Uống một ngụm nước rồi ngồi lại.",
+   "goal": "–",
+   "phases": [
+    {
+     "start": 0,
+     "label": "",
+     "check": null
+    }
+   ]
+  },
+  {
+   "id": "D2",
+   "block": "D",
+   "clip": "TRANSIENT_PHONE",
+   "duration": 20,
+   "cam": "side",
+   "cam_text": "hông",
+   "cue": "Nghe điện thoại khoảng 10 giây.",
+   "goal": "–",
+   "phases": [
+    {
+     "start": 0,
+     "label": "",
+     "check": null
+    }
+   ]
+  },
+  {
+   "id": "D3",
+   "block": "D",
+   "clip": "TRANSIENT_PICKUP",
+   "duration": 20,
+   "cam": "side",
+   "cam_text": "hông",
+   "cue": "Nhặt món đồ dưới sàn.",
+   "goal": "–",
+   "phases": [
+    {
+     "start": 0,
+     "label": "",
+     "check": null
+    }
+   ]
+  },
+  {
+   "id": "D4",
+   "block": "D",
+   "clip": "TRANSIENT_STRETCH",
+   "duration": 20,
+   "cam": "side",
+   "cam_text": "hông",
+   "cue": "Vươn vai, giơ hai tay lên.",
+   "goal": "–",
+   "phases": [
+    {
+     "start": 0,
+     "label": "",
+     "check": null
+    }
+   ]
+  },
+  {
+   "id": "D5",
+   "block": "D",
+   "clip": "TRANSIENT_TURN_HEAD",
+   "duration": 20,
+   "cam": "side",
+   "cam_text": "hông",
+   "cue": "Quay đầu sang trái, rồi sang phải, như nghe ai gọi.",
+   "goal": "–",
+   "phases": [
+    {
+     "start": 0,
+     "label": "",
+     "check": null
+    }
+   ]
+  },
+  {
+   "id": "D6",
+   "block": "D",
+   "clip": "TRANSIENT_LOOK_KEYBOARD",
+   "duration": 20,
+   "cam": "side",
+   "cam_text": "hông",
+   "cue": "Nhìn xuống bàn phím 2–3 lần, mỗi lần 2 giây.",
+   "goal": "–",
+   "phases": [
+    {
+     "start": 0,
+     "label": "",
+     "check": null
+    }
+   ]
+  },
+  {
+   "id": "E1",
+   "block": "E",
+   "clip": "SHOULDER_TILT_L",
+   "duration": 30,
+   "cam": "front",
+   "cam_text": "laptop",
+   "cue": "Hạ vai trái xuống nhẹ 15 giây, rồi hạ rõ hơn 15 giây.",
+   "goal": "tiltRel 3–5°, rồi > 5°",
+   "phases": [
+    {
+     "start": 0,
+     "label": "MỨC NHẸ",
+     "check": [
+      {
+       "m": "tilt",
+       "min": 3,
+       "max": 5,
+       "abs": true
+      }
+     ]
+    },
+    {
+     "start": 15,
+     "label": "MỨC RÕ HƠN",
+     "check": [
+      {
+       "m": "tilt",
+       "min": 5,
+       "abs": true
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "E2",
+   "block": "E",
+   "clip": "SHOULDER_TILT_R",
+   "duration": 30,
+   "cam": "front",
+   "cam_text": "laptop",
+   "cue": "Như E1, vai phải.",
+   "goal": "như E1",
+   "phases": [
+    {
+     "start": 0,
+     "label": "MỨC NHẸ",
+     "check": [
+      {
+       "m": "tilt",
+       "min": 3,
+       "max": 5,
+       "abs": true
+      }
+     ]
+    },
+    {
+     "start": 15,
+     "label": "MỨC RÕ HƠN",
+     "check": [
+      {
+       "m": "tilt",
+       "min": 5,
+       "abs": true
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "E3",
+   "block": "E",
+   "clip": "HEAD_TILT_SIDE_L",
+   "duration": 30,
+   "cam": "front",
+   "cam_text": "laptop",
+   "cue": "Nghiêng đầu, tai trái về phía vai trái; vai giữ ngang.",
+   "goal": "2 mức, mỗi mức 15 s",
+   "phases": [
+    {
+     "start": 0,
+     "label": "MỨC NHẸ",
+     "check": null
+    },
+    {
+     "start": 15,
+     "label": "MỨC RÕ HƠN",
+     "check": null
+    }
+   ]
+  },
+  {
+   "id": "E4",
+   "block": "E",
+   "clip": "HEAD_TILT_SIDE_R",
+   "duration": 30,
+   "cam": "front",
+   "cam_text": "laptop",
+   "cue": "Như E3, bên phải.",
+   "goal": "2 mức",
+   "phases": [
+    {
+     "start": 0,
+     "label": "MỨC NHẸ",
+     "check": null
+    },
+    {
+     "start": 15,
+     "label": "MỨC RÕ HƠN",
+     "check": null
+    }
+   ]
+  },
+  {
+   "id": "E5",
+   "block": "E",
+   "clip": "LEAN_SIDE_L",
+   "duration": 30,
+   "cam": "front",
+   "cam_text": "laptop",
+   "cue": "Nghiêng cả người sang trái, tì lên tay ghế.",
+   "goal": "2 mức",
+   "phases": [
+    {
+     "start": 0,
+     "label": "MỨC NHẸ",
+     "check": null
+    },
+    {
+     "start": 15,
+     "label": "MỨC RÕ HƠN",
+     "check": null
+    }
+   ]
+  },
+  {
+   "id": "E6",
+   "block": "E",
+   "clip": "LEAN_SIDE_R",
+   "duration": 30,
+   "cam": "front",
+   "cam_text": "laptop",
+   "cue": "Như E5, bên phải.",
+   "goal": "2 mức",
+   "phases": [
+    {
+     "start": 0,
+     "label": "MỨC NHẸ",
+     "check": null
+    },
+    {
+     "start": 15,
+     "label": "MỨC RÕ HƠN",
+     "check": null
+    }
+   ]
+  },
+  {
+   "id": "E7",
+   "block": "E",
+   "clip": "DISTANCE_STEPS",
+   "duration": 60,
+   "cam": "front",
+   "cam_text": "laptop",
+   "cue": "Ngồi ở 70, 60, 50, 40 cm, mỗi mức 15 s. Người điều phối đo bằng thước dây từ mặt màn hình đến đuôi mắt và ghi số thật.",
+   "goal": "sai số đo khoảng cách",
+   "phases": [
+    {
+     "start": 0,
+     "label": "70 cm",
+     "check": null,
+     "cm": 70
+    },
+    {
+     "start": 15,
+     "label": "60 cm",
+     "check": null,
+     "cm": 60
+    },
+    {
+     "start": 30,
+     "label": "50 cm",
+     "check": null,
+     "cm": 50
+    },
+    {
+     "start": 45,
+     "label": "40 cm",
+     "check": null,
+     "cm": 40
+    }
+   ]
+  },
+  {
+   "id": "E8",
+   "block": "E",
+   "clip": "TOO_CLOSE",
+   "duration": 30,
+   "cam": "front",
+   "cam_text": "laptop",
+   "cue": "Tiến dần về phía màn hình đến khoảng 35 cm, rồi lùi lại.",
+   "goal": "qua mốc 50/55 cm",
+   "phases": [
+    {
+     "start": 0,
+     "label": "",
+     "check": null
+    }
+   ]
+  },
+  {
+   "id": "E9",
+   "block": "E",
+   "clip": "SHOULDER_RAISE_L",
+   "duration": 30,
+   "cam": "front",
+   "cam_text": "laptop",
+   "cue": "Nhún vai TRÁI lên như kẹp điện thoại giữa tai và vai: nhẹ 15 giây, rồi rõ hơn 15 giây. Đầu giữ thẳng, không nghiêng.",
+   "goal": "2 mức; tiltRel > 3,5° ở mức rõ",
+   "phases": [
+    {
+     "start": 0,
+     "label": "MỨC NHẸ",
+     "check": null
+    },
+    {
+     "start": 15,
+     "label": "MỨC RÕ HƠN",
+     "check": [
+      {
+       "m": "tilt",
+       "min": 3.5,
+       "abs": true
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "E10",
+   "block": "E",
+   "clip": "SHOULDER_RAISE_R",
+   "duration": 30,
+   "cam": "front",
+   "cam_text": "laptop",
+   "cue": "Như E9, vai PHẢI.",
+   "goal": "như E9",
+   "phases": [
+    {
+     "start": 0,
+     "label": "MỨC NHẸ",
+     "check": null
+    },
+    {
+     "start": 15,
+     "label": "MỨC RÕ HƠN",
+     "check": [
+      {
+       "m": "tilt",
+       "min": 3.5,
+       "abs": true
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "E11",
+   "block": "E",
+   "clip": "SHOULDER_SHRUG_BOTH",
+   "duration": 30,
+   "cam": "front",
+   "cam_text": "laptop",
+   "cue": "Nhún CẢ HAI vai lên và giữ, như đang lạnh hoặc căng thẳng: nhẹ 15 giây, rồi rõ hơn 15 giây. Lưng và cổ giữ như lúc ngồi đúng.",
+   "goal": "2 mức; vai ngang nên tiltRel ≈ 0, chọn ngưỡng raiseRel",
+   "phases": [
+    {
+     "start": 0,
+     "label": "MỨC NHẸ",
+     "check": null
+    },
+    {
+     "start": 15,
+     "label": "MỨC RÕ HƠN",
+     "check": null
+    }
+   ]
+  },
+  {
+   "id": "E12",
+   "block": "E",
+   "clip": "SHOULDER_ROUNDED",
+   "duration": 30,
+   "cam": "both",
+   "cam_text": "cả hai",
+   "cue": "Đẩy hai vai tròn ra trước, ngực hóp lại, lưng vẫn tựa ghế, đầu không cúi.",
+   "goal": "thử nghiệm, chưa dùng train",
+   "phases": [
+    {
+     "start": 0,
+     "label": "",
+     "check": null
+    }
+   ]
+  },
+  {
+   "id": "F1",
+   "block": "F",
+   "clip": "AWAY",
+   "duration": 30,
+   "cam": "both",
+   "cam_text": "cả hai",
+   "cue": "Đứng dậy rời khỏi khung hình 20 giây, rồi quay lại ngồi.",
+   "goal": "USER_AWAY",
+   "phases": [
+    {
+     "start": 0,
+     "label": "",
+     "check": null
+    }
+   ]
+  }
+ ]
+}

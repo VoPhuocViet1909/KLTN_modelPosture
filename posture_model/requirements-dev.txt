@@ -1,2 +1,3 @@
-# Chỉ cho công cụ phân tích / thí nghiệm (shoulder_threshold_stats.py). KHÔNG đưa vào requirements.txt của app.
+# Chỉ cho công cụ phân tích / thí nghiệm (shoulder_threshold_stats.py, recording/make_script.py). KHÔNG đưa vào requirements.txt của app.
 scikit-learn==1.9.1
+openpyxl==3.1.5

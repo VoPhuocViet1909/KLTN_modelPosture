@@ -29,3 +29,7 @@ Xem [cách dùng/build](api_handover/desktop-app.md) và [kế hoạch tiếp th
 ## Camera trực tiếp
 
 Ứng dụng hỗ trợ bật truyền hình side/front bằng `--stream-camera`; xem [hợp đồng video v1, cách chạy và phần chưa kiểm](api_handover/live-camera.md). Mặc định tắt, chỉ chủ tài khoản xem được, không ghi hình.
+
+## Công cụ quay dữ liệu 2 camera
+
+`posture_model/record_session.py` quay 35 clip theo `TaiLieu/KichBan_Quay_DataTrain_10Nguoi_v2.xlsx` (thay OBS + ffmpeg): đồng hồ, hiệu lệnh, bíp, kiểm tư thế trực tiếp bằng đúng các hàm của engine, ghi thẳng `P01_S01_<CLIP>_SIDE.mp4` / `_FRONT.mp4` + `_frames.csv` + `sessions.csv`. Danh sách clip nằm ở `posture_model/recording/script_v2.json` (sinh từ Excel bằng `recording/make_script.py`, cần `requirements-dev.txt`). Ví dụ: `python posture_model/record_session.py --person P01 --session S01 --side 1 --front 0`. Hướng dẫn đầy đủ: `TaiLieu/HuongDan_QuayDuLieu.md`. Kiểm bằng video/pose giả: `tests/test_recording.py`, `tests/test_recording_ui.py`; chưa kiểm webcam / iPhone Iriun thật.
