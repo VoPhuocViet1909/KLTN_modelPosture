@@ -9,6 +9,7 @@ import os
 import queue
 import threading
 import time
+from dataclasses import dataclass
 
 import cv2
 
@@ -20,28 +21,66 @@ def _is_index(spec):
     return str(spec).lstrip("-").isdigit()
 
 
-def open_camera(spec, size=SIZE, fps=FPS):
-    """spec: số (chỉ số camera) hoặc đường dẫn file video. Trả cv2.VideoCapture (có thể chưa isOpened)."""
+BACKENDS = {"DSHOW": cv2.CAP_DSHOW, "MSMF": cv2.CAP_MSMF, "ANY": cv2.CAP_ANY}
+
+
+def parse_size(text):
+    """'640x480' -> (640, 480)."""
+    try:
+        w, h = str(text).lower().split("x")
+        return int(w), int(h)
+    except ValueError:
+        raise ValueError(f"Kích thước '{text}' sai, dùng dạng 1280x720 hoặc 640x480.") from None
+
+
+@dataclass
+class CamConfig:
+    """Cấu hình mở camera. fourcc None = để driver tự chọn. backend None = thử lần lượt theo `order`."""
+    backend: str = None
+    fourcc: str = "MJPG"
+    size: tuple = SIZE
+    order: tuple = ("DSHOW", "MSMF", "ANY")       # mặc định: MJPG + DSHOW trước
+
+    def label(self):
+        return f"{self.backend or 'auto'}/{self.fourcc or 'mặc định'}/{self.size[0]}x{self.size[1]}"
+
+
+def _try_open(v, backend, cfg, fps):
+    c = cv2.VideoCapture(v, BACKENDS[backend])
+    if not c.isOpened():
+        c.release()
+        return None
+    if cfg.fourcc:                                                       # MJPG mới đạt 30 fps trên đa số webcam / Iriun
+        c.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*cfg.fourcc))
+    c.set(cv2.CAP_PROP_FRAME_WIDTH, cfg.size[0])
+    c.set(cv2.CAP_PROP_FRAME_HEIGHT, cfg.size[1])
+    c.set(cv2.CAP_PROP_FPS, fps)
+    c.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+    for _ in range(15):                                                  # bỏ vài khung đầu (camera đang lấy sáng)
+        ok, fr = c.read()
+        if ok and fr is not None:
+            return c
+        time.sleep(0.1)
+    c.release()
+    return None
+
+
+def open_camera(spec, cfg=None, fps=FPS):
+    """spec: số (chỉ số camera) hoặc đường dẫn file video. cfg: CamConfig (mặc định MJPG + DSHOW trước, 1280x720)."""
+    cfg = cfg or CamConfig()
     if not _is_index(spec):
         return cv2.VideoCapture(str(spec))
     v = int(spec)
-    for api in (cv2.CAP_DSHOW, cv2.CAP_MSMF, cv2.CAP_ANY):
-        c = cv2.VideoCapture(v, api)
-        if not c.isOpened():
-            c.release()
-            continue
-        c.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))     # MJPG mới đạt 1280x720@30 trên đa số webcam / Iriun
-        c.set(cv2.CAP_PROP_FRAME_WIDTH, size[0])
-        c.set(cv2.CAP_PROP_FRAME_HEIGHT, size[1])
-        c.set(cv2.CAP_PROP_FPS, fps)
-        c.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-        for _ in range(15):                                              # bỏ vài khung đầu (camera đang lấy sáng)
-            ok, fr = c.read()
-            if ok and fr is not None:
-                return c
-            time.sleep(0.1)
-        c.release()
+    for backend in ((cfg.backend,) if cfg.backend else ()) + tuple(b for b in cfg.order if b != cfg.backend):
+        c = _try_open(v, backend, cfg, fps)
+        if c is not None:
+            return c
     return cv2.VideoCapture(v)
+
+
+def opener_for(cfg):
+    """Hàm mở camera cho CameraSource với cấu hình cfg."""
+    return lambda spec: open_camera(spec, cfg)
 
 
 class CameraSource:

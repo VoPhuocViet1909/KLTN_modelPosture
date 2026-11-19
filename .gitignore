@@ -43,3 +43,4 @@ sessions.csv
 record_progress_*.json
 *.rec.mp4
 _cu/
+posture_model/recording/cam_profile.json

@@ -8,7 +8,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-SCALE_W = 480                   # chiều rộng ảnh đưa vào MediaPipe
+SCALE_W = 640                   # chiều rộng ảnh đưa vào MediaPipe
 
 
 @dataclass

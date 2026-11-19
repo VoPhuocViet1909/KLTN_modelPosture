@@ -19,8 +19,14 @@ DEFAULT_OUT = r"D:\KLTN\video_tach"
 
 def parse_args(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0], formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--person", required=True, help="mã người, vd P01")
-    ap.add_argument("--session", required=True, help="mã buổi, vd S01")
+    ap.add_argument("--person", help="mã người, vd P01")
+    ap.add_argument("--session", help="mã buổi, vd S01")
+    ap.add_argument("--check-cams", action="store_true",
+                    help="chỉ đo FPS thật của từng camera ở nhiều cấu hình, in bảng + đề xuất, rồi thoát")
+    ap.add_argument("--check-seconds", type=float, default=10.0, help="giây đo mỗi cấu hình khi --check-cams (mặc định 10)")
+    ap.add_argument("--side-size", help="cỡ hình camera hông, vd 1280x720 (mặc định theo cam_profile.json hoặc 1280x720)")
+    ap.add_argument("--front-size", help="cỡ hình camera laptop, vd 640x480 nếu cam laptop không đạt 30 fps ở 720p")
+    ap.add_argument("--no-profile", action="store_true", help="không dùng recording/cam_profile.json (kết quả --check-cams)")
     ap.add_argument("--side", default="1", help="camera hông (số hoặc đường dẫn); iPhone qua Iriun. Mặc định 1")
     ap.add_argument("--front", default="0", help="camera laptop (số, hoặc -1 = không dùng). Mặc định 0")
     ap.add_argument("--side-video", help="chạy thử: dùng file video thay camera hông")
@@ -32,7 +38,25 @@ def parse_args(argv=None):
     ap.add_argument("--no-face", action="store_true", help="đo khoảng cách bằng 2 mắt của Pose, không tải Face Landmarker")
     ap.add_argument("--script", help="file kịch bản JSON khác (mặc định recording/script_v2.json)")
     ap.add_argument("--countdown", type=float, default=3.0, help="giây đếm ngược trước khi ghi (mặc định 3)")
-    return ap.parse_args(argv)
+    a = ap.parse_args(argv)
+    if not a.check_cams and not (a.person and a.session):
+        ap.error("cần --person và --session (trừ khi dùng --check-cams)")
+    return a
+
+
+def cam_configs(args):
+    """CamConfig cho từng camera: mặc định MJPG + DSHOW trước 1280x720; cam_profile.json (từ --check-cams) đè mặc định;
+    --side-size / --front-size đè cỡ hình."""
+    from recording.capture import CamConfig, parse_size
+    from recording.check_cams import load_profile
+    prof = {} if args.no_profile else load_profile()
+    out = {}
+    for cam, size in (("side", args.side_size), ("front", args.front_size)):
+        cfg = prof.get(cam, CamConfig())
+        if size:
+            cfg = CamConfig(cfg.backend, cfg.fourcc, parse_size(size), cfg.order)
+        out[cam] = cfg
+    return out
 
 
 def build(args):
@@ -40,7 +64,7 @@ def build(args):
     from distance import EyeDistance
     from realtime_posture import PoseDetector
     from recording.analyzer import Analyzer
-    from recording.capture import CameraSource
+    from recording.capture import CameraSource, opener_for
     from recording.script import load_script, select_clips
     from recording.session import Session
 
@@ -51,11 +75,12 @@ def build(args):
     calib = next((c for c in full if c.is_calibration), None)
     side_spec = args.side_video or args.side
     front_spec = args.front_video or (None if str(args.front) == "-1" else args.front)
-    side = CameraSource("hông", side_spec).start()
+    cfgs = cam_configs(args)
+    side = CameraSource("hông", side_spec, opener=opener_for(cfgs["side"])).start()
     front = None
     try:
         if front_spec is not None:
-            front = CameraSource("laptop", front_spec).start()
+            front = CameraSource("laptop", front_spec, opener=opener_for(cfgs["front"])).start()
     except Exception:
         side.close()
         raise
@@ -78,6 +103,9 @@ def build(args):
 
 def main(argv=None):
     args = parse_args(argv)
+    if args.check_cams:
+        from recording.check_cams import main as check_main
+        return check_main(args.side_video or args.side, args.front_video or args.front, args.check_seconds)
     from PySide6.QtWidgets import QApplication
     from recording.ui import RecorderWindow, ask_resume
     from ui.theme import apply_theme
