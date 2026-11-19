@@ -94,7 +94,9 @@ def build(args):
     det_f = PoseDetector(task) if front else None
     an = Analyzer(side, front, det_s, det_f, ed).start()
     from recording.ui import make_beeper
-    comp = None if args.no_compress else Compressor(args.ffmpeg)
+    comp = None if args.no_compress else Compressor(args.ffmpeg)         # không có --ffmpeg -> tự dò (PATH, WinGet, imageio-ffmpeg)
+    if comp is not None:
+        print("Nén nền H.264:", f"bật, ffmpeg = {comp.ffmpeg}" if comp.enabled else "TẮT (không tìm thấy ffmpeg)")
     sess = Session(clips, args.out, args.person, args.session, dict(side=side, front=front), an, ed=ed,
                    calib_clip=calib, beeper=make_beeper(), countdown=args.countdown, compressor=comp,
                    full_seconds=sum(c.duration for c in full))

@@ -72,6 +72,29 @@ def main():
         assert win.warn.isVisibleTo(win) and "chỉ còn 3.2 GB" in win.warn.text() and "#d03b3b" in win.disk.styleSheet()
         if shots:
             win.grab().save(os.path.join(shots, "07_o_dia_day.png"))
+        # trạng thái nén trên màn hình: tắt / không có ffmpeg / nén lỗi / đang nén / đã nén
+        from recording.compress import Compressor
+        win.refresh()
+        assert win.compress.isVisibleTo(win) and win.compress.text().startswith("Nén nền: tắt")
+        sess.compressor = Compressor(False, log=lambda m: None)
+        win.refresh()
+        assert win.compress.text().startswith("Chưa nén: không tìm thấy ffmpeg") and "#d03b3b" in win.compress.styleSheet()
+        sess.compressor = c = Compressor(False, log=lambda m: None)
+        c.ffmpeg = "x"
+        c.failed["D:/v/P01_S01_A_SIDE.mp4"] = "ffmpeg lỗi: Unknown encoder"
+        win.refresh()
+        assert "nén lỗi" in win.compress.text() and "Unknown encoder" in win.compress.text()
+        c.failed.clear()
+        c.pending["a"], c.pending["b"] = object(), object()
+        win.refresh()
+        assert win.compress.text() == "Nén video: đang nén 2 file"
+        c.pending.clear()
+        c.saved = 3e9
+        win.refresh()
+        assert "đã nén, tiết kiệm 3.00 GB" in win.compress.text()
+        if shots:
+            win.grab().save(os.path.join(shots, "08_trang_thai_nen.png"))
+        sess.compressor = None
         sess._disk_usage = lambda p: SimpleNamespace(free=68e9)
         sess.refresh_disk(True)
         sess.tick()

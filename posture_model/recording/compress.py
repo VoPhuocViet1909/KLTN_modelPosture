@@ -3,6 +3,7 @@
 compress_file : nén 1 file; chỉ thay file gốc khi file nén có ĐÚNG số khung + thời lượng (sai thì giữ gốc).
 Compressor    : hàng đợi + thread nền (ưu tiên thấp, 2 luồng) để không giành CPU với camera / MediaPipe của clip kế.
 compress_dir  : nén lại thư mục có sẵn (record_session.py --compress-dir)."""
+import glob
 import os
 import queue
 import re
@@ -29,6 +30,14 @@ def find_ffmpeg(explicit=None):
     p = shutil.which("ffmpeg")
     if p:
         return p
+    base = os.environ.get("LOCALAPPDATA")                                 # WinGet (Gyan.FFmpeg): PATH của terminal đang mở có thể chưa cập nhật
+    if base:
+        pat = [os.path.join(base, "Microsoft", "WinGet", "Links", "ffmpeg.exe"),
+               os.path.join(base, "Microsoft", "WinGet", "Packages", "Gyan.FFmpeg*", "**", "bin", "ffmpeg.exe")]
+        for g in pat:
+            hits = sorted(glob.glob(g, recursive=True))
+            if hits:
+                return hits[-1]
     try:
         import imageio_ffmpeg
         return imageio_ffmpeg.get_ffmpeg_exe()
@@ -114,9 +123,14 @@ def compress_file(path, ffmpeg, crf=CRF, preset=PRESET, runner=_run):
 class Compressor:
     """Nén nền, lần lượt từng file. submit() không chặn. wait_for(path) chờ riêng file đó (trước khi đổi tên / chuyển file)."""
 
-    def __init__(self, ffmpeg="auto", log=print, runner=_run):
-        self.ffmpeg = find_ffmpeg() if ffmpeg == "auto" else ffmpeg
+    def __init__(self, ffmpeg=None, log=print, runner=_run):
+        """ffmpeg: None / "auto" = tự dò (find_ffmpeg); đường dẫn = dùng file đó (không có thì tự dò); False = coi như không có ffmpeg."""
+        if ffmpeg is False:
+            self.ffmpeg = None
+        else:
+            self.ffmpeg = find_ffmpeg(None if ffmpeg in (None, "auto") else ffmpeg)
         self.log, self.runner = log, runner
+        self.failed = {}                        # path -> lý do, các file nén lỗi chưa được nén lại thành công
         self.q = queue.Queue()
         self.lock = threading.Lock()
         self.pending = {}                       # path -> Event
@@ -168,6 +182,10 @@ class Compressor:
                 self.results.append(r)
                 if r["status"] == "ok":
                     self.saved += r["before"] - r["after"]
+                if r["status"] == "failed":
+                    self.failed[path] = r["error"]
+                else:
+                    self.failed.pop(path, None)
                 ev = self.pending.pop(path, None)
             if r["status"] == "failed":
                 self.log(f"Nén {os.path.basename(path)} thất bại, giữ file gốc: {r['error']}")
@@ -188,6 +206,27 @@ class Compressor:
         with self.lock:
             evs = list(self.pending.values())
         return all(e.wait(timeout) for e in evs)
+
+    def status(self):
+        """(mức, chữ) hiển thị trên giao diện: mức = ok | info | warn | bad."""
+        if not self.enabled:
+            return "bad", "Chưa nén: không tìm thấy ffmpeg, video giữ bản gốc (~110 MB/phút). Cài ffmpeg rồi nén lại bằng --compress-dir."
+        with self.lock:
+            busy, failed, saved = len(self.pending), dict(self.failed), self.saved
+        parts, level = [], "ok"
+        if busy:
+            parts.append(f"đang nén {busy} file")
+            level = "info"
+        if failed:
+            name, why = next(reversed(failed.items()))
+            parts.append(f"nén lỗi ({len(failed)} file, giữ bản gốc): {os.path.basename(name)}: {why}")
+            level = "bad"
+        if saved and not busy:
+            parts.append(f"đã nén, tiết kiệm {saved / 1e9:.2f} GB")
+        if not parts:
+            parts.append("nén nền H.264: bật")
+            level = "info"
+        return level, "; ".join(parts)
 
     def failures(self):
         return [r for r in self.results if r["status"] == "failed"]
