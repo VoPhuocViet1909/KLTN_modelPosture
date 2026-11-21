@@ -35,6 +35,7 @@ from live_stream import LivePublisher
 from metrics import MetricsAggregator
 from notifier import Notifier, NotifierBase
 from outbox import Outbox
+import posture_class
 from posture_features import (FEATURES, apply_calibration, calibration_baseline, choose_side, facing_sign,
                               rula_frame_label, sequence_angles, shoulder_raise, shoulder_tilt, to_model_input)
 from quality import ANGLE_KEYS, angles_ok, dist_ok
@@ -152,6 +153,7 @@ def apply_config(cfg, trackers, rem, pres):
 
 class PostureEngine:
     CAMERA_LOSS_SEC = 3.0       # ponytail: phát hiện giữa các read(); driver treo cần capture process riêng.
+    UI_ONLY_SNAP = ("postureClass", "postureProbs")
     STATE_EVERY = 0.25          # giây giữa hai lần phát on_state
     CALIB_RETRY_SEC = 3.0       # hiệu chỉnh không đạt: hiện lý do bấy nhiêu giây rồi tự làm lại
     MOTION_WIN_SEC = 10.0       # cửa sổ tính độ lệch chuẩn vai (Estrada 2023: cửa sổ 10 s)
@@ -303,6 +305,8 @@ class PostureEngine:
         self.sess = ort.InferenceSession(os.path.join(HERE, "posture_transformer.onnx"),
                                          providers=["CPUExecutionProvider"])
         self.WIN, self.FPS = self.model_cfg["window"], self.model_cfg["fps"]
+        self.posture_idx = posture_class.find_posture_output(o_.name for o_ in self.sess.get_outputs())  # None = model cũ 1 output
+        self.posture_classes = list(self.model_cfg.get("classes") or [])
         task = os.path.join(HERE, "pose_landmarker_full.task")
 
         self.use_video = o.side_video is not None
@@ -354,7 +358,8 @@ class PostureEngine:
         self.elog.emit(dict(eventType="SESSION_START", t=0.0, frontCam=self.cap_f is not None,
                             distanceMethod=None if self.ed is None else ("iris" if self.ed.det else "ipd")),
                        config=cfg.snapshot())
-        self.snap = dict(pBad=None, neck=None, trunk=None, headPitch=None, rulaB=None, tiltRel=None, raiseRel=None, distanceCm=None)
+        self.snap = dict(pBad=None, neck=None, trunk=None, headPitch=None, rulaB=None, tiltRel=None, raiseRel=None, distanceCm=None,
+                         postureClass=None, postureProbs=None)
         self.logf = open(o.log, "w", encoding="utf-8") if o.log else None
         if self.logf:
             self.logf.write("time,posture,p_bad," + ",".join(FEATURES)
@@ -383,7 +388,9 @@ class PostureEngine:
 
     def _emit(self, events):
         if events:
-            self.elog.emit_all(events, snapshot=self.snap, config=self.cfg.snapshot())
+            # postureClass/postureProbs chỉ cho UI; chưa đưa vào payload gửi backend (chờ chốt với Tân)
+            snap = {k: v for k, v in self.snap.items() if k not in self.UI_ONLY_SNAP}
+            self.elog.emit_all(events, snapshot=snap, config=self.cfg.snapshot())
 
     def _start_calib(self, now=None):
         evs = []
@@ -403,6 +410,15 @@ class PostureEngine:
         if any(t.status in ("BAD", "CANH BAO") for t in self.trackers):
             return STATE_BAD
         return STATE_GOOD
+
+    def _posture_class_for(self, state, snap):
+        """Lớp tư thế cho UI: chỉ khi trạng thái tổng GOOD/BAD; BAD do lệch vai/khoảng cách (cổ vẫn tốt) thì không có lớp."""
+        if self.posture_idx is None:
+            return None                       # model cũ 1 output
+        if state == STATE_GOOD:
+            return "GOOD"
+        pc = snap.get("postureClass")
+        return pc if state == STATE_BAD and pc != "GOOD" else None
 
     def _observe(self, state):
         if self.config_sync and hasattr(self.config_sync, 'observations'):
@@ -488,6 +504,7 @@ class PostureEngine:
         buf = collections.deque(maxlen=WIN)
         valid_buf = collections.deque(maxlen=WIN)
         p_hist, t_hist, d_hist = (collections.deque(maxlen=5) for _ in range(3))     # median filter 5 kết quả
+        pc_hist = collections.deque(maxlen=5)                # xác suất 6 lớp, cùng độ dài p_hist
         r_hist = collections.deque(maxlen=5)                                         # median filter độ nâng vai
         mot_hist = collections.deque()                       # (t, tiltRel, raiseRel) thô trong ~10 s: đo cử động (Estrada 2023)
         p_med, t_med, d_med, ang, rula_lab = 0.0, np.nan, np.nan, None, None
@@ -672,7 +689,7 @@ class PostureEngine:
                               "| lệch vai:", None if tilt_base is None else round(tilt_base, 1),
                               "| nâng vai (tai→vai / rộng vai):", None if raise_base is None else round(raise_base, 3),
                               "| khoảng cách:", None if not np.isfinite(dist_base) else f"{dist_base:.0f} cm")
-                        buf.clear(); valid_buf.clear(); p_hist.clear(); t_hist.clear(); d_hist.clear(); r_hist.clear(); mot_hist.clear()
+                        buf.clear(); valid_buf.clear(); p_hist.clear(); pc_hist.clear(); t_hist.clear(); d_hist.clear(); r_hist.clear(); mot_hist.clear()
                         if rem.sit_start is None:
                             rem.start(now)
                 lc = max(left, 0)
@@ -691,7 +708,7 @@ class PostureEngine:
                             for t in trackers:
                                 pevs = pevs + t.reset(now, "AWAY")
                             rem.stop()
-                            buf.clear(); valid_buf.clear(); p_hist.clear(); t_hist.clear(); d_hist.clear(); r_hist.clear(); mot_hist.clear()
+                            buf.clear(); valid_buf.clear(); p_hist.clear(); pc_hist.clear(); t_hist.clear(); d_hist.clear(); r_hist.clear(); mot_hist.clear()
                         else:
                             rem.start(now)
                     emit(pevs)
@@ -714,7 +731,10 @@ class PostureEngine:
                             buf.append(np.zeros(len(FEATURES), np.float32))
                         valid_buf.append(c is not None)
                         if len(buf) == WIN:
-                            logit = sess.run(None, {"x": np.stack(buf)[None]})[0][0]
+                            outs = sess.run(None, {"x": np.stack(buf)[None]})
+                            logit = outs[0][0]
+                            if self.posture_idx is not None:
+                                pc_hist.append(posture_class.softmax(outs[self.posture_idx][0]))
                             p_hist.append(1 / (1 + np.exp(-logit)))
                             p_med = float(np.median(p_hist))
                             thr, hy = cfg["p_bad_threshold"], cfg["p_bad_hysteresis"]
@@ -725,6 +745,12 @@ class PostureEngine:
                             snap.update(pBad=p_med, rulaB=None if rula_lab is None or not np.isfinite(rula_lab)
                                         else int(rula_lab))
                             emit(tr_neck.update(bad, now))
+                            mp = posture_class.mean_probs(pc_hist)
+                            snap.update(postureProbs=posture_class.probs_dict(mp, self.posture_classes),
+                                        postureClass=posture_class.pick_posture_class(
+                                            mp, self.posture_classes,
+                                            "BAD" if tr_neck.status in ("BAD", "CANH BAO")
+                                            else "GOOD" if tr_neck.status == "GOOD" else None))
 
                     # ---- nhánh 2: lệch vai (+ nhún vai khi bật shoulder_raise_on)
                     if sample_f and tilt_base is not None:
@@ -812,12 +838,15 @@ class PostureEngine:
             stage = None if not calibrating else ("failed" if cal_fail else "measuring")
             if st != last_state or stage != last_stage or wall - last_state_t >= self.STATE_EVERY:
                 last_state, last_stage, last_state_t = st, stage, wall
+                pcls = self._posture_class_for(st, snap)
                 payload = dict(
                     state=st, calibrating=calibrating, calibLeft=max(left, 0) if calibrating else 0.0,
                     sittingSec=rem.sitting_sec(now), away=pres.away,
                     distanceCm=None if not np.isfinite(d_med) or ed is None else float(d_med),
                     neck=tr_neck.status, tilt=tr_tilt.status if tilt_base is not None else "...",
                     distance=tr_dist.status if ed is not None else "...", pBad=snap.get("pBad"),
+                    postureClass=pcls, postureLabel=posture_class.class_label_vi(pcls),
+                    postureProbs=snap.get("postureProbs") if pcls else None,
                     frontSkipped=self._front_off, stream=self.stream_info(),
                     calib=self._calib_payload(progress, cal_fail, now, cap_f is not None) if calibrating else None)
                 self.listener.on_state(payload)

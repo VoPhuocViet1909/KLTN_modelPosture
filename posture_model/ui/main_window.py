@@ -263,6 +263,8 @@ class MainWindow(QMainWindow):
             self.hint.setText('Kiểm tra camera rồi chọn Kết nối lại / chọn camera.')
         elif skipped:
             self.hint.setText("Đang chạy không đo lệch vai và khoảng cách (đã bỏ qua camera laptop).")
+        elif st == "BAD" and s.get("postureLabel"):
+            self.hint.setText(f"Tư thế: {s['postureLabel']}.")      # tên lớp tư thế của model v4 (None với model cũ)
         else:
             self.hint.setText("")
         self.btn_recal.setVisible(st in ("GOOD", "BAD", "AWAY", "UNKNOWN"))
