@@ -36,3 +36,14 @@ Tài liệu báo cáo hiện hành ở `../../CuonBaoCao` (đường dẫn thự
 ## Chuẩn bị RF trên Kaggle — 07/11/2026
 
 [Hướng dẫn setup và notebook](alert_comparison/README.md): dùng NPZ train cũ hoặc dựng lại video bằng pipeline v3, train riêng RF và xuất model/metadata/dataset. Giữ nguyên Transformer đang triển khai. Có kiểm số mẫu/nhãn và hash tham chiếu; chưa chạy Kaggle hoặc xác nhận dữ liệu dựng lại giống từng byte với lần train cũ. Bộ này chuẩn bị model cho phép so sánh cảnh báo trên người mới về sau, chưa thực hiện phép so sánh đó.
+
+## v4 – 21/11/2026
+
+Notebook huấn luyện lại: [`notebook_v4_retrain_kaggle.ipynb`](notebook_v4_retrain_kaggle.ipynb). Model, cấu hình xuất ra được chép vào `posture_model/` (`posture_transformer.onnx`, `posture_transformer.pt`, `posture_config.json`); `posture_features.py` không đổi (trùng bản v4 khi so `diff --strip-trailing-cr`).
+
+- **Dữ liệu:** P01–P03, video trong `video_tach`.
+- **LOSO Transformer:** acc 0,995, κ 0,991.
+- **LOSO RF:** acc 0,975, κ 0,950.
+- **Đầu 6 lớp:** chưa dùng trong app. Luật lớp phụ còn nhầm NECK_EXTENSION↔LEAN_BACKWARD và LEAN_FORWARD↔SLOUCH.
+- **Ngưỡng vai:** giữ 3,5°/2,5°. Gợi ý trong `shoulder_suggest_v4.json` (nghiêng vai bật 4,55/tắt 3,185; nâng vai bật 0,055/tắt 0,038, suy từ clip cam trước) **chưa áp dụng**.
+- Số liệu trên là kết quả do notebook báo, chưa tái huấn luyện lại trong repo này.
