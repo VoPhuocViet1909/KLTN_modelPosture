@@ -272,3 +272,13 @@ trùng hoặc lẫn ID ngoài lô. Phản hồi thiếu/sai giữ nguyên dữ l
 Khi đăng xuất/hết phiên/dừng engine, app dọn banner/popup và bỏ cảnh báo đang chờ của phiên cũ.
 Không coi việc đóng popup là đã sửa tư thế; trạng thái vẫn theo camera.
 Kiểm không cần webcam: `python posture_model/tests/test_demo_reliability.py`.
+
+## Model v4: lớp tư thế (21/11/2026)
+
+ONNX v4 có hai output: `logit` (GOOD/BAD, vẫn quyết định cảnh báo) và `posture_logits` (6 lớp, thứ tự theo `classes` trong `posture_config.json`: GOOD, FORWARD_HEAD, LEAN_FORWARD, SLOUCH, LEAN_BACKWARD, NECK_EXTENSION). `posture_class.py` lấy softmax, trung bình 5 cửa sổ gần nhất (cùng độ dài `p_hist`). Trạng thái tổng GOOD thì `postureClass = "GOOD"`; BAD thì lấy lớp xấu có xác suất cao nhất (bỏ GOOD); các trạng thái khác, hoặc BAD do lệch vai/khoảng cách mà cổ vẫn tốt, thì `None`. Model cũ chỉ có 1 output thì `postureClass = None`, không lỗi.
+
+Hiện chỉ UI PySide6 dùng: `postureClass`, `postureLabel` (tiếng Việt) và `postureProbs` nằm trong payload `on_state`; `snap` trong engine có `postureClass`/`postureProbs` nhưng bị lọc khỏi `snapshot` của sự kiện `ALERT_*` nên **payload gửi backend không đổi** (có test).
+
+### Đề xuất để bàn với Tân (chưa làm)
+
+Thêm trường tùy chọn `postureClass` (enum 6 giá trị trên, bỏ qua nếu không có) vào `snapshot` của sự kiện `ALERT_STARTED`/`ALERT_RESOLVED` và/hoặc vào bản ghi telemetry/metrics 60 giây (kèm `postureClassMode` là lớp xuất hiện nhiều nhất trong cửa sổ). Lợi ích: Dashboard có thể hiện "Gù lưng", "Đầu đưa ra trước" thay vì chỉ "BAD", và thống kê theo loại tư thế. Cần Tân chốt: tên trường, enum có viết hoa như `classes` không, thêm vào `schemas/` và `openapi.yaml` thế nào, và Dashboard có cần lọc theo lớp không. Chưa chốt thì Desktop không gửi.

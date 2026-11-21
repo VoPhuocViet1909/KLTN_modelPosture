@@ -73,6 +73,31 @@ def test_state_transitions_and_events():
         assert rec.syncs and rec.syncs[-1]["hasServer"] is False and rec.metrics
 
 
+def test_posture_class_in_state_but_not_in_backend_events():
+    engine_mod.PoseDetector = FakePoseDetector
+    with tempfile.TemporaryDirectory() as d:
+        rec = Rec()
+        eng = PostureEngine(_opts(d, _video(d)), notifier=QuietNotifier(), listener=rec)
+        assert eng.run() == "video_end"
+        has_cls = eng.posture_idx is not None                 # model v4: 2 output; model cũ: None
+        good = [s for s in rec.states if s["state"] == "GOOD"]
+        bad = [s for s in rec.states if s["state"] == "BAD"]
+        assert good and bad
+        for s in rec.states:
+            if s["state"] not in ("GOOD", "BAD"):
+                assert s.get("postureClass") is None
+        if has_cls:
+            assert all(s["postureClass"] == "GOOD" for s in good)
+            assert all(s["postureClass"] in engine_mod.posture_class.CLASS_VI and s["postureClass"] != "GOOD"
+                       and s["postureLabel"] for s in bad if s["postureClass"])
+            assert any(s["postureClass"] for s in bad)
+        else:
+            assert all(s["postureClass"] is None for s in rec.states)
+        for line in open(os.path.join(d, "ev.jsonl"), encoding="utf-8"):      # payload backend không đổi
+            snap = json.loads(line).get("snapshot") or {}
+            assert "postureClass" not in snap and "postureProbs" not in snap
+
+
 def test_no_frames_unless_requested():
     engine_mod.PoseDetector = FakePoseDetector
     with tempfile.TemporaryDirectory() as d:
