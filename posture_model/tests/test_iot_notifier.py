@@ -438,7 +438,11 @@ def test_engine_sends_alert_status_and_offline(tmp_path):
         assert wait_for(lambda: not iot.client.running)
         states = [r[2]["state"] for r in dev.posted("/status")]
         collapsed = [s for i, s in enumerate(states) if i == 0 or s != states[i - 1]]
-        assert collapsed == ["CALIBRATING", "GOOD", "BAD", "GOOD", "OFFLINE"], states
+        # Engine phát UNKNOWN khi chưa đủ mẫu hợp lệ (sau hiệu chỉnh) và khi kết quả model nằm trong vùng chưa chắc chắn
+        # (hysteresis, giữa GOOD và BAD). Firmware ESP32 chưa có trạng thái UNKNOWN/CAMERA_LOST nên IotNotifier.on_state
+        # đổi chúng thành OFFLINE (xem desktop-app.md, mục "Trạng thái camera và tư thế"): đây là hành vi mong muốn.
+        # Phần tử OFFLINE cuối cùng là bản tin kết thúc phiên (SESSION_END / close).
+        assert collapsed == ["CALIBRATING", "OFFLINE", "GOOD", "OFFLINE", "BAD", "GOOD", "OFFLINE"], states
         alerts = [(r[2]["eventType"], r[2]["alertType"]) for r in dev.posted("/alert")]
         assert alerts == [("ALERT_STARTED", "NECK_TRUNK"), ("ALERT_RESOLVED", "NECK_TRUNK")], alerts
         assert dev.posted("/alert")[0][2]["level"] == 1
