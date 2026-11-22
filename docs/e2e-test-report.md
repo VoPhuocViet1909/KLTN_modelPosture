@@ -66,10 +66,10 @@ Chưa chạy (cần ORG_ADMIN trên Dashboard, Desktop và Mobile cùng mở).
 
 | # | Lỗi | Nguyên nhân gốc | Sửa ở | Bản sửa |
 | --- | --- | --- | --- | --- |
-| L1 | Dashboard "Chưa đủ dữ liệu" mãi dù Desktop đang gửi | Desktop gửi `sessionId` dạng `s_<hex12>` trong `device-state`; backend đòi UUID → `OBSERVATION_INVALID` | Desktop | `observation.session_uuid` (UUID v5 cố định theo phiên) – PR_MODEL |
+| L1 | Dashboard "Chưa đủ dữ liệu" mãi dù Desktop đang gửi | Desktop gửi `sessionId` dạng `s_<hex12>` trong `device-state`; backend đòi UUID → `OBSERVATION_INVALID` | Desktop | `observation.session_uuid` (UUID v5 cố định theo phiên) – [#32](https://github.com/VoPhuocViet1909/KLTN_modelPosture/pull/32) |
 | L2 | Vẫn "Chưa đủ dữ liệu" sau L1 | netty-socketio đặt `NON_NULL` toàn server, bỏ khóa null (`diagnostics.oldestPendingAt`, `lastFailureCode`, `config.appliedAt`); web yêu cầu đủ khóa | Backend + Web | Backend `ObservationWire` giữ null riêng event này ([PR #85](https://github.com/luongtan204/DoAnTotNghiep_BE/pull/85)); Web `restoreObservation` làm lớp phòng thủ ([PR #23](https://github.com/VoPhuocViet1909/KLTN_dashboard/pull/23)) |
 | L3 | Login `503` ~1 phút sau `docker compose up` | Eureka đăng ký chậm (mặc định 40 s/30 s) và Gateway không chờ service | Backend | Healthcheck mọi service, `depends_on: service_healthy`, rút thời gian Eureka; `docker compose up -d --wait gateway` (cold start 98 s, login 401 ngay) – PR #85 |
-| L4 | Hiệu chỉnh thất bại liên tục | Camera hông chỉ số 1 là **Iriun Webcam** trả khung đen hoàn toàn (độ sáng 0,0) khi app Iriun trên điện thoại chưa phát; thông báo cũ "0% số khung" khó hiểu. Phụ: ngồi quá gần (44–48 cm < 48 cm), cử động nhiều | Desktop | Lý do mới `SIDE_NO_SIGNAL` ("Camera hông không có tín hiệu (hình đen)…"), 17/17 test hiệu chỉnh – PR_MODEL |
+| L4 | Hiệu chỉnh thất bại liên tục | Camera hông chỉ số 1 là **Iriun Webcam** trả khung đen hoàn toàn (độ sáng 0,0) khi app Iriun trên điện thoại chưa phát; thông báo cũ "0% số khung" khó hiểu. Phụ: ngồi quá gần (44–48 cm < 48 cm), cử động nhiều | Desktop | Lý do mới `SIDE_NO_SIGNAL` ("Camera hông không có tín hiệu (hình đen)…"), 17/17 test hiệu chỉnh – [#32](https://github.com/VoPhuocViet1909/KLTN_modelPosture/pull/32) |
 | L5 | "Thời gian có mặt 0 giờ" khi thực tế 21,5 phút | Tổng quan làm tròn theo giờ | Web | `formatMinutes` – PR #23 |
 | L6 | Desktop tự đăng nhập nhầm tài khoản demo; "Outbox belongs to another server or owner" | Phiên cũ trong Credential Manager; outbox gắn với chủ cũ | Quy trình | Hướng dẫn tắt phiên + thư mục outbox riêng theo lần chạy (không sửa code) |
 | L7 | Truy vấn `/stats/me/*` đầu tiên ngay sau khởi động lạnh có lúc `503` vài giây | Analytics đang làm nóng/rebalance consumer (quan sát với tài khoản có nhiều dữ liệu); sau đó 0,05 giây | Backend | **Chưa xử lý**, ghi nhận |
@@ -82,8 +82,8 @@ Lỗi môi trường khác: lệnh PowerShell (`$env:`, `New-NetFirewallRule`) d
 | --- | --- | --- |
 | KLTN_BE (backend) | [#85](https://github.com/luongtan204/DoAnTotNghiep_BE/pull/85) | `ObservationWire`, healthcheck Compose, team-sync (backend do Việt phụ trách) |
 | KLTN_dashboard | [#23](https://github.com/VoPhuocViet1909/KLTN_dashboard/pull/23) | khôi phục khóa null, thời gian có mặt theo phút |
-| KLTN_modelPosture | PR_MODEL | `session_uuid`, `SIDE_NO_SIGNAL`, báo cáo này |
-| KLTN_mobile | PR_MOBILE | luật `explainStatus`, khối chẩn đoán thông báo (dev-only) |
+| KLTN_modelPosture | [#32](https://github.com/VoPhuocViet1909/KLTN_modelPosture/pull/32) | `session_uuid`, `SIDE_NO_SIGNAL`, báo cáo này |
+| KLTN_mobile | [#4](https://github.com/VoPhuocViet1909/KLTN_mobile/pull/4) | luật `explainStatus`, khối chẩn đoán thông báo (dev-only) |
 
 ## Chưa kiểm
 - B4 (mất kết nối, outbox bù, không trùng bản ghi), B5 (cấu hình tổ chức), thông báo "ngồi sai" trên iPhone.
