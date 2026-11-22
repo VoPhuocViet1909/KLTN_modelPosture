@@ -32,6 +32,8 @@ from quality import MIN_WINDOW_SEC, angle_ok, dist_ok
 BAD_STATES = ("BAD", "CANH BAO")
 KNOWN_STATES = ("GOOD", "BAD", "CANH BAO")
 WEIGHTS = {"neck": 0.6, "shoulder": 0.2, "distance": 0.2}
+# Tên lớp của model v4 (posture_config.json["classes"]); trùng enum trong metrics.schema.json
+POSTURE_CLASSES = ("GOOD", "FORWARD_HEAD", "LEAN_FORWARD", "SLOUCH", "LEAN_BACKWARD", "NECK_EXTENSION")
 POSTURE_ALERTS = ("NECK_TRUNK", "SHOULDER_TILT", "TOO_CLOSE")
 
 
@@ -51,6 +53,7 @@ class _Window:
         self.t = {"neck_known": 0.0, "neck_good": 0.0, "sh_known": 0.0, "sh_bad": 0.0, "d_known": 0.0, "d_bad": 0.0}
         self.v = {k: [] for k in ("pbad", "neck", "trunk", "head", "tilt", "dist")}
         self.alerts = {}
+        self.cls = {}                                  # lớp tư thế -> số giây có mặt
 
 
 class MetricsAggregator:
@@ -65,7 +68,7 @@ class MetricsAggregator:
         self.last_now = None
 
     def add(self, now, present, neck_status=None, p_bad=None, ang=None, tilt_rel=None, tilt_status=None,
-            dist_cm=None, dist_status=None):
+            dist_cm=None, dist_status=None, posture_class=None):
         wall = self.wall_t0 + now
         wstart = math.floor(wall / self.window) * self.window
         if self.cur is None:
@@ -81,6 +84,8 @@ class MetricsAggregator:
         if not present:
             return
         w.presence += dt
+        if posture_class in POSTURE_CLASSES and dt > 0:     # lớp đã qua median filter + debounce của tracker cổ
+            w.cls[posture_class] = w.cls.get(posture_class, 0.0) + dt
         if neck_status in KNOWN_STATES:
             w.t["neck_known"] += dt
             w.t["neck_good"] += dt if neck_status == "GOOD" else 0.0
@@ -136,6 +141,10 @@ class MetricsAggregator:
             "postureScore": self.score(w, good, sh_bad, close),
             "modelVersion": self.model_version, "appVersion": self.app_version,
         }
+        if w.cls:                                     # chỉ gửi khi model có lớp (model cũ: bỏ trường, vẫn hợp lệ)
+            secs = {c: round(min(v, w.presence), 1) for c, v in w.cls.items() if round(v, 1) > 0}
+            if secs:
+                m["postureClassSeconds"] = secs
         if self.timing_v1:
             # More precision than display counters keeps the ratio consistent for short samples.
             m.update(postureKnownSec=round(w.t["neck_known"], 6), postureGoodSec=round(w.t["neck_good"], 6))

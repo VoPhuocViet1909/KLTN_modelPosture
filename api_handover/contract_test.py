@@ -327,13 +327,68 @@ def t_insights(c, a):
               s == 403 and (b or {}).get("code") == "AUTH_FORBIDDEN", (s, b))
 
 
+def t_posture(c, a):
+    """postureClassSeconds (tùy chọn) trong metrics + GET /stats/me/posture-classes. Client cũ không gửi vẫn hợp lệ."""
+    dev = Device(seed=21)
+    now = _now()
+    old = dev.metric(now - timedelta(minutes=3))
+    new = dev.metric(now - timedelta(minutes=2), bad_ratio=0.4, with_classes=True,
+                     bad_class={"FORWARD_HEAD": 0.5, "SLOUCH": 0.3, "LEAN_FORWARD": 0.2})
+    allc = dev.metric(now - timedelta(minutes=1), bad_ratio=0.5, with_classes=True)
+    allc["postureClassSeconds"] = {k: 1.0 for k in ("GOOD", "FORWARD_HEAD", "LEAN_FORWARD", "SLOUCH", "LEAN_BACKWARD",
+                                                    "NECK_EXTENSION")}
+    s, b, _ = c.call("POST", "/api/v1/telemetry/batch", dev.batch([], [old, new, allc]))
+    acc = set((b or {}).get("accepted", []))
+    check("posture", "metrics có / không có postureClassSeconds (đủ 6 lớp) đều accepted",
+          s == 200 and {old["metricId"], new["metricId"], allc["metricId"]} <= acc, (s, b))
+    bad = []
+    for i, val in enumerate(({"WEIRD": 5}, {"GOOD": -1}, {"GOOD": "5"}, [5])):
+        m = dev.metric(now - timedelta(minutes=10 + i), with_classes=True)
+        m["postureClassSeconds"] = val
+        bad.append(m)
+    s, b, _ = c.call("POST", "/api/v1/telemetry/batch", dev.batch([], bad))
+    rej = {r.get("id") for r in (b or {}).get("rejected", [])}
+    check("posture", "postureClassSeconds sai (lớp lạ, âm, sai kiểu, không phải object) -> rejected",
+          s == 200 and {m["metricId"] for m in bad} <= rej, (s, b))
+    if a.no_auth:
+        return
+    rng = _q(**{"from": (now - timedelta(hours=1)).isoformat(), "to": (now + timedelta(minutes=1)).isoformat()})
+    s, b, _ = c.call("GET", "/api/v1/stats/me/posture-classes" + rng)
+    if s == 404:
+        print("  (server chưa có /stats/me/posture-classes: bỏ qua phần còn lại)")
+        return
+    s, b = _wait(c, "/api/v1/stats/me/posture-classes" + rng,
+                 lambda body: isinstance(body, dict) and (body.get("totals") or {}).get("NECK_EXTENSION", 0) >= 1)
+    classes = ("GOOD", "FORWARD_HEAD", "LEAN_FORWARD", "SLOUCH", "LEAN_BACKWARD", "NECK_EXTENSION")
+    check("posture", "GET /stats/me/posture-classes -> {bucket, classes, totals, classSec, presenceSec, points}",
+          s == 200 and isinstance(b, dict) and {"bucket", "classes", "totals", "classSec", "presenceSec", "points"} <= set(b)
+          and tuple(b["classes"]) == classes and set(b["totals"]) == set(classes), (s, str(b)[:200]))
+    if not isinstance(b, dict):
+        return
+    t = b.get("totals") or {}
+    check("posture", "totals cộng đúng các metrics vừa gửi (FORWARD_HEAD >= 14,4+1; NECK_EXTENSION >= 1)",
+          t.get("FORWARD_HEAD", 0) >= new["postureClassSeconds"]["FORWARD_HEAD"] + 1 - 0.01
+          and t.get("NECK_EXTENSION", 0) >= 1, t)
+    pts = b.get("points") or []
+    check("posture", "mỗi điểm có start, seconds đủ 6 lớp, presenceSec; tổng points = totals",
+          pts and all({"start", "seconds", "presenceSec"} <= set(p) and set(p["seconds"]) == set(classes) for p in pts)
+          and all(abs(sum(p["seconds"][k] for p in pts) - t[k]) < 0.05 for k in classes), str(pts)[:200])
+    s, b, _ = c.call("GET", "/api/v1/stats/me/posture-classes" + rng + "&bucket=week")
+    check("posture", "bucket=week -> 200", s == 200 and (b or {}).get("bucket") == "week", (s, str(b)[:120]))
+    s, b, _ = c.call("GET", "/api/v1/stats/me/posture-classes?bucket=hour")
+    check("posture", "bucket=hour -> 400 VALIDATION_FAILED, errors[0].field = bucket",
+          s == 400 and (b or {}).get("code") == "VALIDATION_FAILED" and b["errors"][0]["field"] == "bucket", (s, b))
+    s, _, _ = c.call("GET", "/api/v1/stats/me/posture-classes", auth=False)
+    check("posture", "không JWT -> 401", s == 401, s)
+
+
 def _now():
     from datetime import datetime, timezone
     return datetime.now(timezone.utc)
 
 
 GROUPS = {"health": t_health, "auth": t_auth, "batch": t_batch, "errors": t_errors, "perf": t_perf, "config": t_config,
-          "history": t_history, "insights": t_insights}
+          "history": t_history, "insights": t_insights, "posture": t_posture}
 
 
 def main():
