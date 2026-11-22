@@ -1,0 +1,243 @@
+{
+ "base": "http://127.0.0.1:8080",
+ "date": "2026-11-22",
+ "passed": 47,
+ "total": 47,
+ "checks": [
+  {
+   "group": "health",
+   "name": "GET /health không cần JWT, trả 200",
+   "ok": true
+  },
+  {
+   "group": "health",
+   "name": "body có \"status\": \"UP\"",
+   "ok": true
+  },
+  {
+   "group": "auth",
+   "name": "gửi lô KHÔNG có JWT -> 401",
+   "ok": true
+  },
+  {
+   "group": "auth",
+   "name": "gửi lô với JWT sai -> 401",
+   "ok": true
+  },
+  {
+   "group": "auth",
+   "name": "login sai mật khẩu -> 401",
+   "ok": true
+  },
+  {
+   "group": "auth",
+   "name": "login đúng -> 200 + accessToken, refreshToken, expiresIn",
+   "ok": true
+  },
+  {
+   "group": "auth",
+   "name": "login trả user.id và user.role",
+   "ok": true
+  },
+  {
+   "group": "auth",
+   "name": "refresh -> 200 + accessToken mới",
+   "ok": true
+  },
+  {
+   "group": "auth",
+   "name": "refresh token sai -> 401",
+   "ok": true
+  },
+  {
+   "group": "batch",
+   "name": "lô hợp lệ (11 sự kiện đủ 10 loại + 1 metrics) -> 200",
+   "ok": true
+  },
+  {
+   "group": "batch",
+   "name": "mọi id nằm trong accepted",
+   "ok": true
+  },
+  {
+   "group": "batch",
+   "name": "rejected rỗng",
+   "ok": true
+  },
+  {
+   "group": "batch",
+   "name": "gửi lại đúng lô cũ -> 200, id cũ VẪN trong accepted (chống trùng)",
+   "ok": true
+  },
+  {
+   "group": "batch",
+   "name": "duplicates = số mục gửi lại",
+   "ok": true
+  },
+  {
+   "group": "batch",
+   "name": "mục sai schema vào rejected, mục đúng vẫn accepted (200)",
+   "ok": true
+  },
+  {
+   "group": "batch",
+   "name": "mỗi mục rejected có reason",
+   "ok": true
+  },
+  {
+   "group": "batch",
+   "name": "ALERT_RESOLVED thiếu durationSec -> rejected",
+   "ok": true
+  },
+  {
+   "group": "batch",
+   "name": "metrics có trường null (không có cam laptop) vẫn accepted",
+   "ok": true
+  },
+  {
+   "group": "batch",
+   "name": "lô rỗng -> 200",
+   "ok": true
+  },
+  {
+   "group": "errors",
+   "name": "body không phải JSON -> 400",
+   "ok": true
+  },
+  {
+   "group": "errors",
+   "name": "thiếu deviceId -> 400",
+   "ok": true
+  },
+  {
+   "group": "errors",
+   "name": "501 sự kiện / lô -> 413",
+   "ok": true
+  },
+  {
+   "group": "perf",
+   "name": "lô 100 mục trả lời < 5 giây (đo được 0.22 s)",
+   "ok": true
+  },
+  {
+   "group": "perf",
+   "name": "lô 100 mục: đủ 100 id trong accepted",
+   "ok": true
+  },
+  {
+   "group": "config",
+   "name": "GET /config/me -> 200 + object",
+   "ok": true
+  },
+  {
+   "group": "config",
+   "name": "PUT /config/me hợp lệ -> 200",
+   "ok": true
+  },
+  {
+   "group": "config",
+   "name": "GET lại thấy giá trị vừa lưu",
+   "ok": true
+  },
+  {
+   "group": "config",
+   "name": "PUT giá trị sai (alert_sec = -1) -> 400",
+   "ok": true
+  },
+  {
+   "group": "config",
+   "name": "GET /config/me không JWT -> 401",
+   "ok": true
+  },
+  {
+   "group": "history",
+   "name": "gửi phiên + 2 cảnh báo + 1 metrics -> 200",
+   "ok": true
+  },
+  {
+   "group": "history",
+   "name": "GET /alerts/me -> 200 {items, page, size, total}",
+   "ok": true
+  },
+  {
+   "group": "history",
+   "name": "thấy đúng 2 cảnh báo vừa gửi, đủ trường",
+   "ok": true
+  },
+  {
+   "group": "history",
+   "name": "mới nhất trước; cảnh báo chưa resolve còn mở",
+   "ok": true
+  },
+  {
+   "group": "history",
+   "name": "cảnh báo đã resolve: endReason CORRECTED, durationSec 30",
+   "ok": true
+  },
+  {
+   "group": "history",
+   "name": "lọc alertType=TOO_CLOSE",
+   "ok": true
+  },
+  {
+   "group": "history",
+   "name": "GET /alerts/me/sessions: phiên đang mở, alertCount = 2",
+   "ok": true
+  },
+  {
+   "group": "history",
+   "name": "/api/v1/alerts/me?size=0 -> 400 VALIDATION_FAILED, errors[0].field = size",
+   "ok": true
+  },
+  {
+   "group": "history",
+   "name": "/api/v1/alerts/me?from=hom-qua -> 400 VALIDATION_FAILED, errors[0].field = from",
+   "ok": true
+  },
+  {
+   "group": "history",
+   "name": "GET /alerts/me không JWT -> 401",
+   "ok": true
+  },
+  {
+   "group": "history",
+   "name": "GET /stats/me/summary -> {meanScore, badMinutes, presenceMinutes, alerts}",
+   "ok": true
+  },
+  {
+   "group": "history",
+   "name": "summary đã tính metrics vừa gửi (presenceMinutes >= 1, alerts.NECK_TRUNK >= 1)",
+   "ok": true
+  },
+  {
+   "group": "history",
+   "name": "GET /stats/me/timeseries?bucket=hour -> mảng {start, ...}",
+   "ok": true
+  },
+  {
+   "group": "history",
+   "name": "bucket=week -> 400 VALIDATION_FAILED",
+   "ok": true
+  },
+  {
+   "group": "history",
+   "name": "GET /stats/me/heatmap -> 168 ô {weekday 1..7, hour 0..23, meanScore}",
+   "ok": true
+  },
+  {
+   "group": "history",
+   "name": "heatmap weeks=13 -> 400",
+   "ok": true
+  },
+  {
+   "group": "history",
+   "name": "/api/v1/alerts/org với role USER -> 403 AUTH_FORBIDDEN",
+   "ok": true
+  },
+  {
+   "group": "history",
+   "name": "/api/v1/stats/org/summary với role USER -> 403 AUTH_FORBIDDEN",
+   "ok": true
+  }
+ ]
+}

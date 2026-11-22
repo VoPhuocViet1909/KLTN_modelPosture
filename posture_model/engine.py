@@ -628,6 +628,8 @@ class PostureEngine:
                     if sample_s:
                         self._neck_observed = False
                         cal["n_s"] += 1
+                        if float(fs.mean()) < calibration.DARK_MEAN:
+                            cal["dark_s"] = cal.get("dark_s", 0) + 1
                     if sample_f:
                         cal["n_f"] += 1
                     if Ls is not None:

@@ -128,6 +128,21 @@ def test_khong_thay_nguoi_hong():
     assert run(samples(n=0))["ok"] is False
 
 
+def test_cam_hong_den_khong_co_tin_hieu():
+    """E2E 22/11/2026: Iriun chưa phát hình -> khung đen; phải báo 'không có tín hiệu', không phải 'không thấy người'."""
+    cal = samples(visible=0.0)
+    cal["dark_s"] = cal["n_s"]
+    res = run(cal)
+    assert not res["ok"] and codes(res) == ["SIDE_NO_SIGNAL"], codes(res)
+    msg = res["reasons"][0]["message"]
+    assert "tín hiệu" in msg and "Iriun" in msg
+    assert "khung đen" in check(res, "side_visible")["detail"]
+    cal["dark_s"] = 0                                   # có hình nhưng không thấy người: giữ thông điệp cũ
+    assert codes(run(cal)) == ["SIDE_NOT_VISIBLE"]
+    cal["dark_s"] = int(cal["n_s"] * 0.5)               # chỉ một nửa số khung đen: chưa đủ để kết luận mất tín hiệu
+    assert codes(run(cal)) == ["SIDE_NOT_VISIBLE"]
+
+
 def test_thieu_vai_cam_laptop():
     res = run(samples(front=0.3, dist_px=100), front=True)
     assert not res["ok"] and codes(res) == ["SHOULDERS_NOT_VISIBLE"]
