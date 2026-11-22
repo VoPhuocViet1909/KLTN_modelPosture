@@ -43,7 +43,7 @@ def ascii_vi(s):
     return unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode()
 
 
-def format_message(ev, cfg=None):
+def format_message(ev, cfg=None, tips=None):
     title, body = MESSAGES.get(ev.get("alertType"), ("Cảnh báo", "Hãy điều chỉnh tư thế."))
     if ev.get("alertType") in MESSAGES:
         body = message_for_level(ev["alertType"], ev.get("level", 1))
@@ -58,7 +58,8 @@ def format_message(ev, cfg=None):
     if ev.get("eventType") == "ALERT_REPEATED":
         title += labels()["ui"]["repeat_suffix"].format(level=ev.get("level", 2))
     evidence = explanation(ev)
-    return title, body + ('\n' + evidence if evidence else '')
+    tip = tips.tip_for(ev.get("alertType")) if tips is not None and ev.get("eventType") in ("ALERT_STARTED", "ALERT_REPEATED") else None
+    return title, body + ('\n' + evidence if evidence else '') + ('\nMẹo: ' + tip if tip else '')
 
 
 def explanation(ev):
@@ -99,6 +100,7 @@ class Notifier(NotifierBase):
 
     def __init__(self, cfg, iot=None):
         self.cfg = cfg
+        self.tips = None                # HealthTips: mẹo từ bảng tri thức sức khỏe (không bắt buộc)
         self.policy = NotificationPolicy()
         self.iot = iot                  # IotNotifier: thiết bị ESP32 đang kêu thì máy tính không bíp nữa
         self.banner = None              # (hết hạn lúc, tiêu đề, nội dung, mức)
@@ -114,7 +116,7 @@ class Notifier(NotifierBase):
     def __call__(self, ev):
         if not ev.get("notify"):
             return
-        title, body = format_message(ev, self.cfg)
+        title, body = format_message(ev, self.cfg, self.tips)
         sev = ev.get("severity", "LOW")
         channels = self.policy.decide()
         self.banner = (time.time() + self.BANNER_SEC, title, body, sev)

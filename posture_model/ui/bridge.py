@@ -80,10 +80,11 @@ class QtNotifier(QObject, NotifierBase):
     def __init__(self, cfg, parent=None):
         QObject.__init__(self, parent)
         self.cfg = cfg
+        self.tips = None                                # HealthTips: mẹo từ bảng tri thức sức khỏe (không bắt buộc)
         self.policy = NotificationPolicy()
 
     def __call__(self, ev):
         if not ev.get("notify"):
             return
-        title, body = format_message(ev, self.cfg)
+        title, body = format_message(ev, self.cfg, self.tips)
         self.notice.emit(title, body, ev.get("severity", "LOW"), ev.get("alertType") or "", ev.get("eventType", ""))

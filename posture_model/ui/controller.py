@@ -23,6 +23,7 @@ import login_service
 from api_session import AuthError
 from alerts import machine_device_id
 from engine import APP_DIR, EngineOptions, PostureEngine, load_config
+from health_tips import HealthTips
 from iot_notifier import IotNotifier
 from ui import icons
 from ui.bridge import EngineBridge, EngineThread, QtNotifier, Task
@@ -124,6 +125,7 @@ class AppController(QObject):
         self.camera = CameraView()
         self.bridge = EngineBridge()
         self.notifier = QtNotifier(self.cfg)
+        self.notifier.tips = HealthTips(os.path.join(APP_DIR, 'out', 'health_kb_cache.json'))   # cache offline; đồng bộ khi đăng nhập
         self.iot = IotNotifier(iot_config.load(), app_cfg=self.cfg)    # luôn tạo để bật/tắt trong thiết lập có hiệu lực ngay
         self.window.setWindowIcon(make_icon("GOOD"))
 
@@ -369,6 +371,8 @@ class AppController(QObject):
         self.notifier.policy.reset()
         self.auth, self.remember = auth, remember
         self._command_stop = threading.Event()
+        if self.notifier.tips is not None:                  # đồng bộ mẹo sức khỏe nền, không chặn khởi động; lỗi thì dùng cache
+            threading.Thread(target=self.notifier.tips.refresh, args=(auth,), daemon=True, name="health-tips").start()
         config_sync = None
         try:
             from config_sync import ConfigSync       # bật config sync sau đăng nhập (như --sync-config)
