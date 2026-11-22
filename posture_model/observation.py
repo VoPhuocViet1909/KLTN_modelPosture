@@ -2,9 +2,22 @@
 from datetime import datetime, timezone
 import threading
 import time
+import uuid
 
 REASON = dict(GOOD='NONE', BAD='NONE', AWAY='NONE', CALIBRATING='CALIBRATING',
               UNKNOWN='INSUFFICIENT_DATA', CAMERA_LOST='CAMERA_READ_FAILED', OFFLINE='SESSION_STOPPED')
+
+
+_SESSION_NS = uuid.UUID("6f1d4c0e-2a6b-4c5e-9d0e-6b1f3a7c9e21")
+
+
+def session_uuid(session):
+    """Backend (device-state) đòi sessionId là UUID, còn phiên của app có dạng 's_<hex12>'.
+    Giữ nguyên UUID hợp lệ; còn lại suy ra UUID cố định từ chuỗi (cùng phiên -> cùng UUID)."""
+    try:
+        return str(uuid.UUID(str(session)))
+    except ValueError:
+        return str(uuid.uuid5(_SESSION_NS, str(session)))
 
 
 class ObservationBuffer:
@@ -32,7 +45,7 @@ class ObservationBuffer:
     def put(self, device, session, state):
         with self.lock:
             self.sequence += 1
-            self.latest = (time.monotonic(), dict(version=1, deviceId=device, sessionId=session,
+            self.latest = (time.monotonic(), dict(version=1, deviceId=device, sessionId=session_uuid(session),
                 sequence=self.sequence, state=state, reason=REASON[state], observedAt=datetime.now(timezone.utc).isoformat()))
             if self.config is not None:
                 self.latest[1]['config'] = dict(self.config)

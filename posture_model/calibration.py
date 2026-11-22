@@ -46,6 +46,8 @@ from posture_features import FEATURES, choose_side, facing_sign, sequence_angles
 MIN_VIS = 0.5               # visibility tối thiểu của tai/vai/hông (giống MIN_SHOULDER_VIS của cam trước)
 MIN_FRAMES = 10             # ít hơn số khung hợp lệ này thì chưa đủ để đánh giá
 WARMUP_SAMPLES = 8          # hiển thị kết quả trực tiếp khi đã có ít nhất chừng này mẫu cam hông
+DARK_RATIO = 0.9             # từ chừng này số khung cam hông đen hoàn toàn thì báo "không có tín hiệu" thay vì "không thấy người"
+DARK_MEAN = 4.0             # độ sáng trung bình (0-255) dưới mức này coi là khung đen
 EPS_DEG = 0.05              # dung sai làm tròn khi so với ngưỡng (tránh 0,0000001° làm trượt)
 
 DEFAULTS = {"calib_visible_ratio": 0.8, "calib_max_neck_deg": 30.0, "calib_min_neck_deg": 0.0,
@@ -80,8 +82,9 @@ def thresholds(cfg):
 
 
 def new_samples():
-    """Bộ nhớ mẫu của một lượt hiệu chỉnh. n_s / n_f = số lần ĐÃ lấy mẫu cam hông / cam laptop (kể cả khung không thấy người)."""
-    return dict(L=[], W=[], tilt=[], dpx=[], dkind=[], t0=None, n_s=0, n_f=0)
+    """Bộ nhớ mẫu của một lượt hiệu chỉnh. n_s / n_f = số lần ĐÃ lấy mẫu cam hông / cam laptop (kể cả khung không thấy người);
+    dark_s = số khung cam hông đen hoàn toàn (không có tín hiệu, vd Iriun/điện thoại chưa phát hình)."""
+    return dict(L=[], W=[], tilt=[], dpx=[], dkind=[], t0=None, n_s=0, n_f=0, dark_s=0)
 
 
 def _fmt(deg):
@@ -136,6 +139,12 @@ def evaluate(cal, cfg, front_enabled=False, ed=None, width_px=640, final=True):
     if final or enough:
         if vis >= MIN_FRAMES and ratio >= th["calib_visible_ratio"]:
             good("side_visible", ratio, d_vis)
+        elif (final or n_s >= 2 * WARMUP_SAMPLES) and n_s and cal.get("dark_s", 0) >= DARK_RATIO * n_s:
+            # E2E 22/11/2026: Iriun Webcam (điện thoại) trả khung đen khi app Iriun chưa phát => "0% số khung" khó hiểu.
+            fail("side_visible", "Camera hông không có tín hiệu (hình đen). Nếu dùng điện thoại qua Iriun: mở app Iriun "
+                 "trên điện thoại, kết nối cùng Wi-Fi (hoặc cáp USB) rồi chờ hình hiện lên; hoặc chọn camera khác "
+                 "trong phần thiết lập camera.", ratio, d_vis + f"; {cal['dark_s']}/{n_s} khung đen (không có tín hiệu)")
+            out["side_visible"]["error_code"] = "SIDE_NO_SIGNAL"
         elif final or n_s >= 2 * WARMUP_SAMPLES:
             fail("side_visible", "Camera hông không thấy đủ tai, vai và hông "
                  f"({ratio * 100:.0f}% số khung, cần ≥ {th['calib_visible_ratio'] * 100:.0f}%). "
@@ -196,7 +205,7 @@ def evaluate(cal, cfg, front_enabled=False, ed=None, width_px=640, final=True):
         else:
             out["distance"]["detail"] = "chưa đo được khoảng cách (không chặn)"
     checks = list(out.values())
-    reasons = [dict(code=CHECKS[c["code"]][1], message=c["message"]) for c in checks if c["ok"] is False]
+    reasons = [dict(code=c.get("error_code", CHECKS[c["code"]][1]), message=c["message"]) for c in checks if c["ok"] is False]
     ok = not reasons and all(c["ok"] is True for c in checks if c["code"] != "distance")   # đo không được: không chặn
     return dict(ok=ok, checks=checks, reasons=reasons)
 

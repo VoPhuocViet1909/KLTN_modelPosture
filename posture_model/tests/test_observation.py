@@ -5,7 +5,7 @@ import sys
 from types import SimpleNamespace
 from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from observation import ObservationBuffer, REASON
+from observation import ObservationBuffer, REASON, session_uuid
 from engine import PostureEngine
 from ui.tokens import labels
 from iot_notifier import IotNotifier
@@ -34,6 +34,13 @@ def main():
         buffer.put('device', 'session', 'GOOD')
         assert buffer.send(emit, force=True)
     assert packets[-1][1]['sequence'] > packets[0][1]['sequence']
+    # backend đòi sessionId là UUID; phiên của app có dạng s_<hex12> (lỗi E2E 22/11/2026: OBSERVATION_INVALID)
+    import uuid
+    for _, body in packets:
+        uuid.UUID(body['sessionId'])
+    assert session_uuid('s_422bc97276bf') == session_uuid('s_422bc97276bf') != session_uuid('s_000000000000')
+    real = str(uuid.uuid4())
+    assert session_uuid(real) == real
     assert all(event == 'device-state' for event, body in packets)
     engine = PostureEngine.__new__(PostureEngine)
     engine.pres = SimpleNamespace(away=False)
