@@ -12,6 +12,7 @@ Mã thoát 0 = đạt hết, 1 = có mục trượt. Mốc M2 trong kế hoạch
 """
 import argparse
 import json
+import re
 import sys
 import time
 import urllib.error
@@ -287,13 +288,52 @@ def t_history(c, a):
                   s == 403 and (b or {}).get("code") == "AUTH_FORBIDDEN", (s, b))
 
 
+def t_insights(c, a):
+    """Cảnh báo nguy cơ sức khỏe (health-insight-service). Server chưa có /insights (vd mock): bỏ qua nhóm, không tính điểm."""
+    s, kb, _ = c.call("GET", "/api/v1/insights/knowledge")
+    if s == 404:
+        print("  (server chưa có /api/v1/insights: bỏ qua nhóm này)")
+        return
+    entries = (kb or {}).get("entries") or []
+    check("insights", "GET /insights/knowledge -> 200 có kbVersion, disclaimer, entries",
+          s == 200 and re.fullmatch(r"\d+\.\d+\.\d+", str((kb or {}).get("kbVersion", "")))
+          and "không phải chẩn đoán y khoa" in (kb or {}).get("disclaimer", "") and len(entries) >= 1, (s, str(kb)[:200]))
+    check("insights", "mỗi mục KB có nguồn (DOI hoặc URL) và mức bằng chứng hợp lệ",
+          all(e.get("sources") and all(x.get("doi") or x.get("url") for x in e["sources"])
+              and e.get("evidence") in ("strong", "moderate", "weak") for e in entries), "")
+    s, _, _ = c.call("GET", "/api/v1/insights/me/health-risks", auth=False)
+    check("insights", "GET /insights/me/health-risks không JWT -> 401", s == 401, s)
+    s, b, _ = c.call("GET", "/api/v1/insights/me/health-risks?period=7d")
+    risks = (b or {}).get("risks") or []
+    check("insights", "GET /insights/me/health-risks?period=7d -> 200, đủ trường, một thẻ cho mỗi mục KB",
+          s == 200 and b.get("period") == "7d" and b.get("status") in ("OK", "INSUFFICIENT_DATA")
+          and "không phải chẩn đoán y khoa" in b.get("disclaimer", "") and b.get("kbVersion") == kb.get("kbVersion")
+          and len(risks) == len(entries) and b.get("explanationSource") in ("gemini", "template"), (s, str(b)[:300]))
+    check("insights", "mỗi nguy cơ có kbId, mức hợp lệ, chỉ số, nguồn",
+          all(r.get("kbId") and r.get("level") in ("LOW", "MEDIUM", "HIGH", "INSUFFICIENT_DATA")
+              and isinstance(r.get("indicators"), list) and r.get("sources") for r in risks), "")
+    check("insights", "ít dữ liệu (status INSUFFICIENT_DATA) thì mọi mức là INSUFFICIENT_DATA",
+          (b or {}).get("status") != "INSUFFICIENT_DATA" or all(r["level"] == "INSUFFICIENT_DATA" for r in risks), "")
+    check("insights", "bằng chứng yếu không bao giờ ra mức HIGH",
+          all(not (r.get("evidence") == "weak" and r.get("level") == "HIGH") for r in risks), "")
+    s, b, _ = c.call("GET", "/api/v1/insights/me/health-risks?period=30d")
+    check("insights", "period=30d -> 200", s == 200 and b.get("period") == "30d", (s, str(b)[:120]))
+    s, b, _ = c.call("GET", "/api/v1/insights/me/health-risks?period=1y")
+    check("insights", "period=1y -> 400 VALIDATION_FAILED, errors[0].field = period",
+          s == 400 and (b or {}).get("code") == "VALIDATION_FAILED" and b["errors"][0]["field"] == "period", (s, b))
+    if a.role_user:
+        s, b, _ = c.call("GET", "/api/v1/insights/org/health-risks")
+        check("insights", "/api/v1/insights/org/health-risks với role USER -> 403 AUTH_FORBIDDEN",
+              s == 403 and (b or {}).get("code") == "AUTH_FORBIDDEN", (s, b))
+
+
 def _now():
     from datetime import datetime, timezone
     return datetime.now(timezone.utc)
 
 
 GROUPS = {"health": t_health, "auth": t_auth, "batch": t_batch, "errors": t_errors, "perf": t_perf, "config": t_config,
-          "history": t_history}
+          "history": t_history, "insights": t_insights}
 
 
 def main():
