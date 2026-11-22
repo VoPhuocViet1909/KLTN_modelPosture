@@ -206,7 +206,8 @@ class ApiSession:
                 (self.base_url + "/api/v1/auth/media-token", "POST"),
                 (self.base_url + "/api/v1/config/me", "GET"),
                 (self.base_url + "/api/v1/config/me/notification-policy", "GET"),
-                (self.base_url + "/api/v1/config/me/snapshot", "GET")):
+                (self.base_url + "/api/v1/config/me/snapshot", "GET"),
+                (self.base_url + "/api/v1/insights/knowledge", "GET")):
             raise AuthError("Authenticated request outside session scope")
         token = self.token()
         request.add_header("Authorization", "Bearer " + token)
