@@ -1,5 +1,9 @@
 param([Parameter(Mandatory)][string]$Package)
 $ErrorActionPreference = 'Stop'
+trap {
+    Write-Host $_.ScriptStackTrace
+    throw
+}
 $root = Join-Path $env:RUNNER_TEMP ("KLTN thử cài " + [guid]::NewGuid())
 $data = Join-Path $root 'dữ liệu'
 $out = Join-Path $data 'out'
