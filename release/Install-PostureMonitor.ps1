@@ -51,8 +51,8 @@ try {
     if (!(Test-Path -LiteralPath $working -PathType Container)) { throw 'User data directory is unavailable.' }
     $tempShortcut = Join-Path $root ("switch-" + [guid]::NewGuid() + '.lnk')
     $link = $shell.CreateShortcut($tempShortcut)
-    $link.TargetPath = $target
-    $link.WorkingDirectory = $working
+    $link.TargetPath = $target.ToString()
+    $link.WorkingDirectory = $working.ToString()
     $link.Save()
     if ([IO.File]::Exists($shortcut)) {
         $backup = Join-Path $root ("previous-" + [guid]::NewGuid() + '.lnk')
