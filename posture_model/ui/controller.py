@@ -780,7 +780,8 @@ class AppController(QObject):
             return
         engine.request_stream(camera, ffmpeg)
         if camera:
-            self.window.set_stream(dict(camera=camera, state="connecting",
+            cameras = ("side", "front") if camera == "both" else (camera,)
+            self.window.set_stream(dict(states=dict.fromkeys(cameras, "connecting"),
                 frontAvailable=self.window.stream_camera.model().item(1).isEnabled()), True)
 
     def open_camera(self):

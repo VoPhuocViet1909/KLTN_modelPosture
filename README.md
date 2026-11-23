@@ -28,7 +28,7 @@ Xem [cách dùng/build](api_handover/desktop-app.md) và [kế hoạch tiếp th
 
 ## Camera trực tiếp
 
-Ứng dụng hỗ trợ bật truyền hình side/front bằng `--stream-camera`; xem [hợp đồng video v1, cách chạy và phần chưa kiểm](api_handover/live-camera.md). Mặc định tắt, chỉ chủ tài khoản xem được, không ghi hình.
+Ứng dụng hỗ trợ bật truyền hình bằng `--stream-camera side|front|both`; xem [hợp đồng video v1, cách chạy và phần chưa kiểm](api_handover/live-camera.md). Mặc định tắt, chỉ chủ tài khoản xem được, không ghi hình.
 
 ## Công cụ quay dữ liệu 2 camera
 
