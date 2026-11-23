@@ -30,13 +30,17 @@ function Check-Version([string]$expected) {
     $process = $running | Select-Object -First 1
     if (!$process) { throw 'The launcher did not start the expected release.' }
     try {
+        $titles = @('Thiết lập Posture Monitor', 'Posture Monitor')
         $deadline = (Get-Date).AddSeconds(90)
         do {
             Start-Sleep -Milliseconds 500
             $process.Refresh()
             if ($process.HasExited) { throw "Application exited with $($process.ExitCode)." }
-        } until (($process.MainWindowHandle -ne 0 -and $process.Responding) -or (Get-Date) -gt $deadline)
-        if (!$process.MainWindowHandle -or !$process.Responding) { throw 'GUI did not start.' }
+        } until (($process.MainWindowTitle -in $titles -and $process.Responding) -or (Get-Date) -gt $deadline)
+        if ($process.MainWindowTitle -notin $titles -or !$process.Responding) {
+            throw "Expected the setup or main window. Actual title: $($process.MainWindowTitle)"
+        }
+        Write-Host "Release $expected opened: $($process.MainWindowTitle)"
     } finally {
         if (!$process.HasExited) { $process.Kill(); $process.WaitForExit() }
     }
