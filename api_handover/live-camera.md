@@ -12,7 +12,7 @@ Cần BE có Auth media-token và MediaMTX 1.21.2, FFmpeg **9.0.2** có libx264,
 python -X utf8 posture_model/realtime_app.py --side 1 --front 0 --stream-camera side --ffmpeg <absolute-path-to-ffmpeg>
 ```
 
-- Không có `--stream-camera` thì không gửi video. Chọn side/front; front phải mở được. Chỉ một camera mỗi process; lấy từ capture sẵn có, trước overlay, không âm thanh.
+- Không có `--stream-camera` thì không gửi video. Chọn `side`, `front` hoặc `both`; `front` và `both` cần camera trước hoạt động. Chế độ `both` gửi song song hai luồng từ capture sẵn có, trước overlay, không âm thanh.
 - Cấu hình cũ `api_base_url` là gốc Gateway, `api_token` là JWT của user sở hữu camera. Không commit token. Chế độ thủ công vẫn hot reload token; dùng `--login` để đăng nhập và refresh tự động như mô tả dưới đây.
 - `--stream-rtsp-base rtsp://127.0.0.1:8554` mặc định. Thiết bị khác máy cần BE cấu hình LAN/VPN, ICE/origin/firewall theo tài liệu; loopback không nhận thiết bị từ xa. Không mở plaintext local ra Internet.
 - Mở `http://localhost:8080/camera.html`, nhập API token cùng user, deviceId in lúc bật streaming/metadata, camera đã chọn. Media server localhost mặc định `http://127.0.0.1:8889`.
@@ -99,7 +99,7 @@ Kiểm gửi bù bổ sung: tiêm URLError tại HTTP opener của client (khôn
 # Bật/dừng trên desktop GUI
 
 Bản nguồn `feat/desktop-camera-sharing`: đăng nhập → hiệu chỉnh → **Chia sẻ camera lên web**
-→ chọn góc → **Bật chia sẻ**; nếu được hỏi, chọn `ffmpeg.exe`. Trên Dashboard cùng tài khoản,
+→ chọn góc hoặc **Cả hai camera** → **Bật chia sẻ**; nếu được hỏi, chọn `ffmpeg.exe`. Trên Dashboard cùng tài khoản,
 chọn thiết bị/góc và **Xem camera**. **Dừng chia sẻ** giữ giám sát tư thế. Đăng xuất/thoát/đổi
 thiết lập dừng publisher, phiên mới mặc định tắt. Đóng cửa sổ xuống khay vẫn tiếp tục chia sẻ.
 Camera trước phải đang hoạt động. CLI phía dưới vẫn dùng được. Portable cũ chưa có nút mới.

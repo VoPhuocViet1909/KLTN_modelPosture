@@ -145,7 +145,7 @@ def main():
     ap.add_argument("--hide-meta", action="store_true", help="ẩn bảng METADATA lúc mở (phím m để bật lại)")
     ap.add_argument("--no-face", action="store_true", help="không dùng Face Landmarker, đo bằng khoảng cách 2 mắt")
     ap.add_argument("--max-sec", type=float, default=None, help="dừng sau N giây (kiểm thử)")
-    ap.add_argument("--stream-camera", choices=("side", "front"), help="bật truyền hình camera đã chọn; mặc định tắt")
+    ap.add_argument("--stream-camera", choices=("side", "front", "both"), help="bật truyền hình camera đã chọn; mặc định tắt")
     ap.add_argument("--stream-rtsp-base", default="rtsp://127.0.0.1:8554")
     ap.add_argument("--ffmpeg", default="ffmpeg", help="đường dẫn FFmpeg có encoder libx264")
     a = ap.parse_args()
