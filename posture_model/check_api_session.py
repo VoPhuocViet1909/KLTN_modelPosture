@@ -111,7 +111,13 @@ def main():
                 outbox.retry_now()
                 assert not sender._send(outbox.due())
                 assert len(state["refreshes"]) == count and outbox.stats()["pending"] == 1
-                outbox.put("event", "other-account", {"eventId": "other-account", "userId": "other"})
+                try:
+                    outbox.put("event", "other-account", {"eventId": "other-account", "userId": "other"})
+                except ValueError as error:
+                    assert str(error) == "Outbox owner mismatch"
+                else:
+                    raise AssertionError("Outbox accepted a record for another account")
+                assert outbox.stats() == dict(sent=1, pending=1, dead=0)
                 assert not sender._send([("other-account", "event", {"userId": "other"})])
                 assert "another user" in sender.last_error and state["deliveries"] == 1
             finally:

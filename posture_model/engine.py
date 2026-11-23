@@ -43,7 +43,8 @@ from realtime_posture import PoseDetector, draw_front, draw_side
 from sender import Sender
 
 HERE = os.path.dirname(os.path.abspath(__file__))                       # model, file .task (đi kèm app)
-APP_DIR = os.path.dirname(sys.executable) if getattr(sys, "frozen", False) else HERE   # cấu hình, sự kiện (ghi được)
+from runtime_paths import data_directory
+APP_DIR = str(data_directory())
 
 STATE_GOOD, STATE_BAD, STATE_AWAY, STATE_CALIBRATING = "GOOD", "BAD", "AWAY", "CALIBRATING"
 
