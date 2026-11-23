@@ -15,14 +15,20 @@ $config = Join-Path $data 'app_config.json'
 [IO.File]::WriteAllText($config, '{}')
 $hash = (Get-FileHash $fixture).Hash
 $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot"
-$shell = New-Object -ComObject WScript.Shell
+
 function Check-Version([string]$expected) {
-    $shortcut = $shell.CreateShortcut((Join-Path $root 'Posture Monitor.lnk'))
+    $launcher = Join-Path $root 'Posture Monitor.cmd'
     $release = Join-Path (Join-Path $root 'releases') $expected
-    if ($shortcut.TargetPath -ne (Join-Path $release 'PostureMonitor.exe')) { throw 'Incorrect active release.' }
-    if ($shortcut.WorkingDirectory -ne $data) { throw 'Incorrect working directory.' }
+    $target = Join-Path $release 'PostureMonitor.exe'
     if ([IO.File]::ReadAllText((Join-Path $release 'posture-data.path')).Trim() -ne $data) { throw 'Incorrect runtime data path.' }
-    $process = Start-Process -FilePath $shortcut.TargetPath -WorkingDirectory $data -PassThru
+    Start-Process -FilePath $launcher -WorkingDirectory $root
+    $deadline = (Get-Date).AddSeconds(15)
+    do {
+        Start-Sleep -Milliseconds 250
+        $running = Get-Process -Name PostureMonitor -ErrorAction SilentlyContinue | Where-Object Path -eq $target
+    } until ($running -or (Get-Date) -gt $deadline)
+    $process = $running | Select-Object -First 1
+    if (!$process) { throw 'The launcher did not start the expected release.' }
     try {
         $deadline = (Get-Date).AddSeconds(90)
         do {

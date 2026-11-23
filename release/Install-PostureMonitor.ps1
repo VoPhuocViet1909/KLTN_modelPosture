@@ -11,11 +11,10 @@ $root = [IO.Path]::GetFullPath($InstallDir)
 [IO.Directory]::CreateDirectory($root) | Out-Null
 $lock = [IO.File]::Open((Join-Path $root 'install.lock'), 'OpenOrCreate', 'ReadWrite', 'None')
 $staging = $null
-$tempShortcut = $null
+$tempLauncher = $null
 try {
     $release = Join-Path (Join-Path $root 'releases') $Version
-    $shortcut = Join-Path $root 'Posture Monitor.lnk'
-    $shell = New-Object -ComObject WScript.Shell
+    $launcher = Join-Path $root 'Posture Monitor.cmd'
     if (Get-Process -Name PostureMonitor -ErrorAction SilentlyContinue) { throw 'Close Posture Monitor before switching versions.' }
     if (!$Activate) {
         $source = (Resolve-Path -LiteralPath $Package).Path
@@ -26,8 +25,10 @@ try {
             if (Test-Path -LiteralPath (Join-Path $source $file)) { throw "Release contains local data: $file" }
         }
         if (Test-Path -LiteralPath $release) { throw 'Version exists. Use -Activate to switch back to it.' }
-        if (Test-Path -LiteralPath $shortcut) {
-            $previous = Split-Path ($shell.CreateShortcut($shortcut).TargetPath)
+        if (Test-Path -LiteralPath $launcher) {
+            $marker = [IO.File]::ReadAllLines($launcher)[1]
+            if ($marker -notmatch '^rem release ([A-Za-z0-9][A-Za-z0-9_.-]{0,63})$') { throw 'Invalid release marker.' }
+            $previous = Join-Path (Join-Path $root 'releases') $Matches[1]
             $currentData = [IO.File]::ReadAllText((Join-Path $previous 'posture-data.path')).Trim()
             if ($DataDir -and [IO.Path]::GetFullPath($DataDir) -ne $currentData) { throw 'Data directory differs from current installation.' }
             $DataDir = $currentData
@@ -49,19 +50,18 @@ try {
     if (!(Test-Path -LiteralPath $target -PathType Leaf)) { throw 'Version is not installed.' }
     $working = [IO.File]::ReadAllText((Join-Path $release 'posture-data.path')).Trim()
     if (!(Test-Path -LiteralPath $working -PathType Container)) { throw 'User data directory is unavailable.' }
-    $tempShortcut = Join-Path $root ("switch-" + [guid]::NewGuid() + '.lnk')
-    $link = $shell.CreateShortcut($tempShortcut)
-    $link.TargetPath = $target.ToString()
-    $link.WorkingDirectory = $working.ToString()
-    $link.Save()
-    if ([IO.File]::Exists($shortcut)) {
-        $backup = Join-Path $root ("previous-" + [guid]::NewGuid() + '.lnk')
-        [IO.File]::Replace($tempShortcut, $shortcut, $backup)
+    $tempLauncher = Join-Path $root ("switch-" + [guid]::NewGuid() + '.cmd')
+    $lines = @('@echo off', "rem release $Version", 'setlocal DisableDelayedExpansion',
+               ('start "" "%~dp0releases\' + $Version + '\PostureMonitor.exe"'))
+    [IO.File]::WriteAllLines($tempLauncher, $lines, [Text.Encoding]::ASCII)
+    if ([IO.File]::Exists($launcher)) {
+        $backup = Join-Path $root ("previous-" + [guid]::NewGuid() + '.cmd')
+        [IO.File]::Replace($tempLauncher, $launcher, $backup)
         [IO.File]::Delete($backup)
-    } else { [IO.File]::Move($tempShortcut, $shortcut) }
-    Write-Output $shortcut
+    } else { [IO.File]::Move($tempLauncher, $launcher) }
+    Write-Output $launcher
 } finally {
     if ($staging -and (Test-Path -LiteralPath $staging)) { Remove-Item -LiteralPath $staging -Recurse -Force }
-    if ($tempShortcut -and [IO.File]::Exists($tempShortcut)) { [IO.File]::Delete($tempShortcut) }
+    if ($tempLauncher -and [IO.File]::Exists($tempLauncher)) { [IO.File]::Delete($tempLauncher) }
     $lock.Dispose()
 }

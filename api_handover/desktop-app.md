@@ -41,7 +41,7 @@ Nguồn: https://pypi.org/pypi/pyinstaller/6.22.3/json, https://pyinstaller.org/
 QSettings dùng API Qt có sẵn: https://doc.qt.io/qtforpython-6/PySide6/QtCore/QSettings.html.
 
 Kiểm 18/10/2026: build portable thành công (~433 MiB), mở `.exe` hiện màn **Thiết lập Posture Monitor**
-trên Windows, tiến trình phản hồi; đã tạo shortcut Desktop trên máy phát triển. Không kèm cấu hình/token/outbox/log.
+trên Windows, tiến trình phản hồi; đã tạo tệp khởi chạy Desktop trên máy phát triển. Không kèm cấu hình/token/outbox/log.
 `test_setup.py` đạt (validate/lưu lựa chọn/preview nền/giải phóng camera/đổi camera/hủy), login 9/9,
 engine 4/4, calibration 16/16 đạt. Qt E2E bằng video/landmark giả: CALIBRATING→GOOD→BAD→GOOD,
 nhịp UI tối đa 47 ms. Tokens/labels được đối chiếu trực tiếp với repo `KLTN_dashboard`, đạt.
@@ -293,6 +293,6 @@ Gói mới có file release-layout-v1. Đóng ứng dụng rồi chạy trong Po
 ./release/Install-PostureMonitor.ps1 -Activate -Version 1.0
 ```
 
-Shortcut ở `%LOCALAPPDATA%/PostureMonitor/Posture Monitor.lnk`. Mỗi phiên bản có thư mục binary riêng. Cấu hình và outbox mặc định ở `%LOCALAPPDATA%/PostureMonitor/data`. Để tiếp tục dùng dữ liệu portable cũ, truyền `-DataDir` với đường dẫn thư mục portable cũ ở lần cài đầu và giữ thư mục đó. Khi người dùng mở trực tiếp gói portable không có marker đường dẫn, app dùng bố cục cạnh exe như trước. Chuyển về bản cài trước chỉ đổi shortcut. Với thay đổi schema outbox trong một bản phát hành tương lai cần xác nhận tương thích ngược trước khi quay lui.
+Shortcut ở `%LOCALAPPDATA%/PostureMonitor/Posture Monitor.cmd`. Mỗi phiên bản có thư mục binary riêng. Cấu hình và outbox mặc định ở `%LOCALAPPDATA%/PostureMonitor/data`. Để tiếp tục dùng dữ liệu portable cũ, truyền `-DataDir` với đường dẫn thư mục portable cũ ở lần cài đầu và giữ thư mục đó. Khi người dùng mở trực tiếp gói portable không có marker đường dẫn, app dùng bố cục cạnh exe như trước. Chuyển về bản cài trước chỉ đổi tệp khởi chạy. Với thay đổi schema outbox trong một bản phát hành tương lai cần xác nhận tương thích ngược trước khi quay lui.
 
 Workflow Windows build bằng PyInstaller 6.22.3 đã dùng trong dự án, rồi chuyển artifact sang một runner mới. Smoke test mở GUI với PATH chỉ có Windows, dùng hai thư mục phát hành từ cùng artifact và kiểm hash cấu hình/outbox fixture sau khi đổi A→B→A. Môi trường không có webcam vật lý. Kiểm nguồn ngày 24/11/2026: [image Windows Server 2025](https://github.com/actions/runner-images/blob/main/images/windows/Windows2025-Readme.md), [runtime PyInstaller](https://pyinstaller.org/en/stable/runtime-information.html), [action download-artifact v8.0.2](https://github.com/actions/download-artifact/releases/tag/v8.0.2).
