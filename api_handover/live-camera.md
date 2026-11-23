@@ -116,3 +116,8 @@ Luồng video v1 bên dưới đã có trong dự án. Nhánh `feat/live-camera-
 Địa chỉ video lưu trong QSettings gắn với URL API tương ứng; đổi API không tự dùng địa chỉ video của server cũ. Khi đã đăng nhập có thể sửa máy chủ video, nhưng địa chỉ API vẫn khóa theo phiên như trước. Trường RTSP dùng cùng validator với LivePublisher, từ chối tài khoản/password/query/path/port sai. Không bật camera hoặc gửi video chỉ vì lưu địa chỉ.
 
 MediaMTX, API và đường ICE phải hoạt động. Web dùng VITE_MEDIA_BASE_URL nếu đã cấu hình, mặc định cùng hostname web tại cổng 8889. HTTPS cần media HTTPS. Hướng dẫn cấu hình và kiểm thật tại BE `docs/live-camera-dashboard-setup.md`; không suy kiểm hai máy/LAN từ test loopback. Đợt này kiểm 19 script, bounded queue và browser media giả lập; chưa khởi động media/webcam thật hoặc Docker.
+
+
+## Chia sẻ với quản trị viên tổ chức
+
+Trong **Chia sẻ camera lên web**, chọn góc hoặc **Cả hai camera**, tích **Chia sẻ với quản trị viên tổ chức** và bấm **Bật chia sẻ**. Tùy chọn chỉ hiện với tài khoản có tổ chức và tự bỏ chọn khi dừng. Quản trị viên cùng tổ chức mở **Tổng quan tổ chức → Camera trực tiếp**. Khi Desktop dừng publisher, phiên đang xem kết thúc.

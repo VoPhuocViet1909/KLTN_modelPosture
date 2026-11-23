@@ -778,11 +778,13 @@ class AppController(QObject):
                 settings.setValue("ffmpeg", ffmpeg)
         if self.engine is not engine or self.mode != "session" or self._leaving:
             return
-        engine.request_stream(camera, ffmpeg)
+        organization = bool(camera and self.window.stream_org.isEnabled() and self.window.stream_org.isChecked())
+        engine.request_stream(camera, ffmpeg, organization)
         if camera:
             cameras = ("side", "front") if camera == "both" else (camera,)
-            self.window.set_stream(dict(states=dict.fromkeys(cameras, "connecting"),
-                frontAvailable=self.window.stream_camera.model().item(1).isEnabled()), True)
+            self.window.set_stream(dict(states=dict.fromkeys(cameras, "connecting"), organizationSharing=organization,
+                frontAvailable=self.window.stream_camera.model().item(1).isEnabled(),
+                organizationAvailable=bool(getattr(getattr(engine, "auth", None), "org_id", None))), True)
 
     def open_camera(self):
         if self.engine is not None:

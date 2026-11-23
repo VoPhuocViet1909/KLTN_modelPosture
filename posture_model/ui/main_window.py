@@ -1,7 +1,7 @@
 """Cửa sổ co giãn. Hai trang: Đăng nhập (LoginView) và Trạng thái (thước dọi, nhãn trạng thái, thời gian ngồi,
 khoảng cách mắt–màn hình, kết nối). Không hiện camera mặc định; nút 'Xem camera' mở cửa sổ riêng."""
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import (QComboBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QMainWindow, QPushButton, QStackedWidget,
+from PySide6.QtWidgets import (QCheckBox, QComboBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QMainWindow, QPushButton, QStackedWidget,
                                QScrollArea, QVBoxLayout, QWidget)
 
 from ui import icons
@@ -184,6 +184,10 @@ class MainWindow(QMainWindow):
         self.btn_stream.clicked.connect(lambda: self.streamRequested.emit(None if self._sharing else self.stream_camera.currentData()))
         choice.addWidget(self.btn_stream)
         sl.addLayout(choice)
+        self._sharing = False
+        self.stream_org = QCheckBox("Chia sẻ với quản trị viên tổ chức")
+        self.stream_org.setMinimumHeight(44)
+        sl.addWidget(self.stream_org)
         self.stream_note = QLabel()
         self.stream_note.setObjectName("note")
         self.stream_note.setWordWrap(True)
@@ -207,7 +211,15 @@ class MainWindow(QMainWindow):
     def set_stream(self, info, available):
         self.stream_device.setText('Mã thiết bị trên web: ' + info['deviceId'] if available and info.get('deviceId') else '')
         states = info.get("states", {})
+        was_sharing = self._sharing
         self._sharing = bool(states)
+        org_available = available and bool(info.get("organizationAvailable"))
+        self.stream_org.setVisible(org_available)
+        self.stream_org.setEnabled(org_available and not self._sharing)
+        if self._sharing:
+            self.stream_org.setChecked(bool(info.get("organizationSharing")))
+        elif not org_available or was_sharing:
+            self.stream_org.setChecked(False)
         self.btn_stream.setText("Dừng chia sẻ" if self._sharing else "Bật chia sẻ")
         self.btn_stream.setEnabled(available)
         self.stream_camera.setEnabled(available and not self._sharing)
