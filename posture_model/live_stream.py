@@ -31,7 +31,7 @@ def validate_rtsp_base(value):
 
 
 class LivePublisher:
-    def __init__(self, config, device_id, camera, rtsp_base, ffmpeg="ffmpeg", auth=None):
+    def __init__(self, config, device_id, camera, rtsp_base, ffmpeg="ffmpeg", auth=None, organization=False):
         if camera not in ("side", "front") or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}", device_id):
             raise ValueError("Invalid camera or device ID")
         rtsp_base = validate_rtsp_base(rtsp_base)
@@ -40,6 +40,10 @@ class LivePublisher:
             raise ValueError("FFmpeg is required when live streaming is enabled")
         self.config, self.device_id, self.camera = config, device_id, camera
         self.auth = auth
+        self.org_id = str(auth.org_id) if organization and auth and auth.org_id else None
+        self.owner_id = str(auth.user_id) if self.org_id else None
+        if organization and not self.org_id:
+            raise ValueError("Organization sharing requires an organization account")
         self.rtsp_base = rtsp_base.rstrip("/")
         self.frames = collections.deque(maxlen=1)
         self.condition = threading.Condition()
@@ -65,26 +69,46 @@ class LivePublisher:
             self.frames.append(data)
             self.condition.notify()
 
-    def _grant(self):
+    def _post(self, endpoint, body, timeout):
         api, token = self.config()
         base = urllib.parse.urlsplit(api)
         if base.scheme not in ("http", "https") or not base.hostname or base.username or base.password or base.query or base.fragment:
             raise ValueError("Invalid API base")
-        request = urllib.request.Request(api.rstrip("/") + "/api/v1/auth/media-token",
-                data=json.dumps(dict(deviceId=self.device_id, camera=self.camera, action="publish")).encode(),
+        request = urllib.request.Request(api.rstrip("/") + "/api/v1/auth/" + endpoint,
+                data=json.dumps(body).encode(),
                 headers={"Authorization": "Bearer " + token, "Content-Type": "application/json"}, method="POST")
         # Do not follow redirects carrying Authorization to another origin.
         class NoRedirect(urllib.request.HTTPRedirectHandler):
             def redirect_request(self, *args, **kwargs):
                 return None
-        with (self.auth.open(request, timeout=5) if self.auth else
-              urllib.request.build_opener(NoRedirect).open(request, timeout=5)) as response:
-            grant = json.loads(response.read(16384))
-        if not re.fullmatch(r"camera/[0-9a-f-]{36}/" + re.escape(self.device_id) + "/" + self.camera, grant["path"]):
+        with (self.auth.open(request, timeout=timeout) if self.auth else
+              urllib.request.build_opener(NoRedirect).open(request, timeout=timeout)) as response:
+            return response.read(16384)
+
+    def _grant(self):
+        body = dict(deviceId=self.device_id, camera=self.camera, action="publish")
+        if self.org_id:
+            body["scope"] = "organization"
+        grant = json.loads(self._post("media-token", body, timeout=5))
+        angle_path = self.device_id + "/" + self.camera
+        if self.org_id:
+            prefix = "org-camera/" + self.org_id + "/" + self.owner_id + "/" + angle_path + "/"
+            pattern = re.escape(prefix) + r"[0-9a-f-]{36}"
+        else:
+            pattern = r"camera/[0-9a-f-]{36}/" + re.escape(angle_path)
+        if not re.fullmatch(pattern, grant["path"]):
             raise ValueError("Invalid granted path")
         if grant.get("action") != "publish" or not 20 <= grant["expiresIn"] <= 120:
             raise ValueError("Invalid media grant")
         return grant
+
+    def _revoke_share(self, grant):
+        try:
+            self._post("media-share/stop", dict(deviceId=self.device_id, camera=self.camera,
+                shareId=grant["path"].rsplit("/", 1)[-1]), timeout=2)
+        except (OSError, ValueError, RuntimeError):
+            # The publisher is already closed. The server index also expires.
+            pass
 
     def _kill(self):
         with self.process_lock:
@@ -93,7 +117,7 @@ class LivePublisher:
 
     def _run(self):
         while not self.stopped.is_set():
-            process, expiry = None, None
+            process, expiry, grant = None, None, None
             renew_at = float("inf")
             try:
                 self.state = "connecting"
@@ -144,6 +168,8 @@ class LivePublisher:
                     process.stdin.close()
                 with self.process_lock:
                     self.process = None
+                if self.org_id and grant:
+                    self._revoke_share(grant)
             if time.monotonic() < renew_at:
                 self.state = "retrying"
                 self.stopped.wait(5)

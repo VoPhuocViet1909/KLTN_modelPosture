@@ -188,6 +188,7 @@ class PostureEngine:
         self.sync_info = {}
         self.streams = {}
         self.stream_error = None
+        self._organization_stream = False
         self._stream_requests = queue.SimpleQueue()
 
     # ---------------------------------------------------------------- điều khiển
@@ -231,11 +232,11 @@ class PostureEngine:
         """Bỏ qua camera laptop: chạy không đo lệch vai và khoảng cách (khi camera laptop không thấy đủ hai vai)."""
         self._skip_front.set()
 
-    def request_stream(self, camera, ffmpeg=None):
+    def request_stream(self, camera, ffmpeg=None, organization=False):
         """Chỉ lệnh từ người dùng; vòng lặp camera sở hữu vòng đời publisher."""
         if camera not in (None, "side", "front", "both"):
             raise ValueError("Camera không hợp lệ.")
-        self._stream_requests.put((camera, ffmpeg or self.o.ffmpeg))
+        self._stream_requests.put((camera, ffmpeg or self.o.ffmpeg, organization))
 
     def _update_stream(self):
         request = None
@@ -243,15 +244,19 @@ class PostureEngine:
             request = self._stream_requests.get_nowait()
         if request is None:
             return
-        camera, ffmpeg = request
+        camera, ffmpeg, organization = request
         for publisher in self.streams.values():
             publisher.stop(wait=False)
         self.streams.clear()
         self.stream_error = None
+        self._organization_stream = organization
         if camera is None:
             return
         if not self.o.send or not (self.auth or self.cfg["api_token"]):
             self.stream_error = "Đăng nhập để chia sẻ camera trên web."
+            return
+        if organization and not getattr(self.auth, "org_id", None):
+            self.stream_error = "Tài khoản chưa thuộc tổ chức để chia sẻ camera."
             return
         cameras = ("side", "front") if camera == "both" else (camera,)
         if "front" in cameras and (self.cap_f is None or self._front_off):
@@ -263,10 +268,11 @@ class PostureEngine:
                 return self.auth.credentials(self.cfg["api_base_url"])
             return self.cfg["api_base_url"], self.cfg["api_token"]
 
+        scope = {"organization": True} if organization else {}
         try:
             for angle in cameras:
                 publisher = LivePublisher(credentials, self.elog.device_id, angle, self.o.stream_rtsp_base,
-                                          ffmpeg, auth=self.auth)
+                                          ffmpeg, auth=self.auth, **scope)
                 self.streams[angle] = publisher
                 publisher.start()
         except (OSError, ValueError, RuntimeError):
@@ -285,6 +291,8 @@ class PostureEngine:
     def stream_info(self):
         return dict(states={angle: publisher.state for angle, publisher in self.streams.items()},
                     error=self.stream_error,
+                    organizationSharing=bool(self.streams) and self._organization_stream,
+                    organizationAvailable=bool(getattr(self.auth, "org_id", None)),
                     deviceId=self.elog.device_id if getattr(self, 'elog', None) else None,
                     frontAvailable=self.cap_f is not None and not self._front_off)
 

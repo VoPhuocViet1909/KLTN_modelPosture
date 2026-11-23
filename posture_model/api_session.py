@@ -204,6 +204,7 @@ class ApiSession:
         if not (personal_command or personal_goals or personal_workspace) and (request.full_url, request.get_method()) not in (
                 (self.base_url + "/api/v1/telemetry/batch", "POST"),
                 (self.base_url + "/api/v1/auth/media-token", "POST"),
+                (self.base_url + "/api/v1/auth/media-share/stop", "POST"),
                 (self.base_url + "/api/v1/config/me", "GET"),
                 (self.base_url + "/api/v1/config/me/notification-policy", "GET"),
                 (self.base_url + "/api/v1/config/me/snapshot", "GET"),

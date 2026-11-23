@@ -1,4 +1,5 @@
 """python tests/test_camera_sharing.py — no webcam/network; engine ownership + Qt controls."""
+import json
 import os
 from pathlib import Path
 import sys
@@ -113,6 +114,24 @@ def main():
         publisher.thread.join(2)
         assert not publisher.thread.is_alive() and not spawn.called
 
+    org_id = "01234567-1234-1234-1234-0123456789ab"
+    owner_id = "01234567-1234-1234-1234-0123456789ac"
+    share_id = "01234567-1234-1234-1234-0123456789ad"
+    path = f"org-camera/{org_id}/{owner_id}/test-device/side/{share_id}"
+    publisher = LivePublisher(lambda: ("", ""), "test-device", "side", "rtsp://localhost:8554", sys.executable,
+                              auth=SimpleNamespace(org_id=org_id, user_id=owner_id), organization=True)
+    with patch.object(publisher, "_post", return_value=json.dumps({
+        "path": path, "token": "fixture-only", "expiresIn": 120, "action": "publish"
+    }).encode()) as post:
+        grant = publisher._grant()
+        post.assert_called_once_with("media-token", {
+            "deviceId": "test-device", "camera": "side", "action": "publish", "scope": "organization"
+        }, timeout=5)
+        publisher._revoke_share(grant)
+        post.assert_called_with("media-share/stop", {
+            "deviceId": "test-device", "camera": "side", "shareId": share_id
+        }, timeout=2)
+
     app = QApplication.instance() or QApplication([])
     window = MainWindow()
     selected = []
@@ -123,6 +142,14 @@ def main():
     assert not window.stream_camera.model().item(2).isEnabled()
     window.btn_stream.click()
     assert selected[-1] == "side"
+    assert not window.stream_org.isEnabled() and not window.stream_org.isChecked()
+    window.set_stream(dict(organizationAvailable=True), True)
+    assert window.stream_org.isEnabled() and not window.stream_org.isChecked()
+    window.stream_org.setChecked(True)
+    window.set_stream(dict(states={"side": "publishing"}, organizationAvailable=True, organizationSharing=True), True)
+    assert window.stream_org.isChecked() and not window.stream_org.isEnabled()
+    window.set_stream(dict(organizationAvailable=True), True)
+    assert not window.stream_org.isChecked() and window.stream_org.isEnabled()
     window.set_stream(dict(frontAvailable=True), True)
     window.stream_camera.setCurrentIndex(2)
     window.btn_stream.click()
