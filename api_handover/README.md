@@ -1,5 +1,8 @@
 # Gói bàn giao API v1.5 – Desktop App → Backend
 
+> **Đã đóng băng ở v1.5 (15/10/2026).** `openapi.yaml` không cập nhật nữa. Danh mục API, quy tắc làm việc và tiến độ hiện ở
+> `DoAnTotNghiep_BE/.codex/skills/team-sync/SKILL.md`. `schemas/*.json` và các script trong thư mục này vẫn dùng như cũ.
+
 Thư mục này là **toàn bộ những gì backend cần** để làm phần nhận dữ liệu, không cần webcam hay chạy Desktop App.
 Kế hoạch chi tiết, lộ trình và các câu hỏi cần chốt nằm trong tài liệu "Kế hoạch bàn giao API".
 
@@ -208,3 +211,14 @@ trên Desktop App (bản sao trong `posture_model/schemas/`), nên quy tắc "kh
 **`mock_server.py` lỏng hơn backend:** `PUT /config/me` của mock chỉ kiểm theo schema (không từ chối `api_token`,
 `api_base_url`, khoá lạ, không kiểm chéo) và vẫn trả lỗi dạng cũ `{error}`; mock chưa có Socket.IO.
 `contract_test.py` nhóm `config` vẫn đúng với cả mock và backend.
+
+## v1.6: lớp tư thế trong metrics (tùy chọn)
+
+Thêm trường **tùy chọn** `postureClassSeconds` vào `metrics` (`schemas/metrics.schema.json`, openapi `Metrics`):
+
+- Số giây có mặt theo từng lớp của model v4: `GOOD`, `FORWARD_HEAD`, `LEAN_FORWARD`, `SLOUCH`, `LEAN_BACKWARD`, `NECK_EXTENSION`. Chỉ ghi lớp > 0; tổng không vượt `presenceSec`.
+- Desktop cộng dồn theo lớp **sau median filter + debounce** (lớp của tracker cổ/thân): cổ tốt -> `GOOD`, cổ xấu -> lớp xấu có xác suất trung bình cao nhất. Lệch vai / ngồi gần không tạo lớp.
+- Tương thích ngược: client cũ (hoặc model cũ 1 output) không gửi trường này vẫn hợp lệ; tên lớp lạ, giá trị âm hoặc sai kiểu bị `rejected`.
+- Backend: lưu cột `posture_class_sec` (jsonb); `GET /api/v1/stats/me/posture-classes?from&to&bucket=day|week` trả `{bucket, classes, totals, classSec, presenceSec, points[{start, seconds, presenceSec}]}`.
+- `contract_test.py` có nhóm `posture`; `replay.py seed` gửi kèm phân bố lớp (`--no-classes` để giả lập client cũ).
+

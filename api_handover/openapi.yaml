@@ -1498,6 +1498,30 @@ components:
           additionalProperties:
             type: integer
             minimum: 0
+        postureClassSeconds:
+          type: object
+          description: 'Tùy chọn. Số giây có mặt theo lớp tư thế của model v4 (sau median filter + debounce) trong cửa sổ;
+            chỉ ghi lớp > 0, tổng không vượt `presenceSec`. Client cũ không gửi vẫn hợp lệ.'
+          properties:
+            GOOD:
+              type: number
+              minimum: 0
+            SLOUCH:
+              type: number
+              minimum: 0
+            LEAN_FORWARD:
+              type: number
+              minimum: 0
+            FORWARD_HEAD:
+              type: number
+              minimum: 0
+            LEAN_BACKWARD:
+              type: number
+              minimum: 0
+            NECK_EXTENSION:
+              type: number
+              minimum: 0
+          additionalProperties: false
         postureScore:
           type:
           - integer

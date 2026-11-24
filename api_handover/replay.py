@@ -4,7 +4,7 @@ Phát dữ liệu giả lập vào server theo đúng hợp đồng v1.0. Chỉ 
 1) seed – sinh LỊCH SỬ nhiều ngày cho nhiều máy, để làm Dashboard khi chưa có app thật:
    python replay.py seed --base http://127.0.0.1:8080 --email demo@kltn.local --password 123456 --devices 5 --days 7
    Mỗi ngày làm việc 08:30–17:30, nghỉ trưa 12:00–13:00; tư thế xấu dần về chiều; có cảnh báo, vắng mặt,
-   nhắc nghỉ mắt, đầu / cuối phiên. 1 máy × 1 ngày ≈ 480 metrics + 60–120 sự kiện.
+   nhắc nghỉ mắt, đầu / cuối phiên; mỗi metrics kèm postureClassSeconds (--no-classes để bỏ). 1 máy × 1 ngày ≈ 480 metrics + 60–120 sự kiện.
 
 2) load – kiểm thử tải: N máy gửi đồng thời trong T giây:
    python replay.py load --base ... --token <JWT> --devices 500 --duration 120 --interval 5
@@ -64,7 +64,7 @@ def pct(xs, p):
 
 
 # ====================================================================== seed
-def day_history(dev, day, rng):
+def day_history(dev, day, rng, classes=True):
     """Sự kiện + metrics của 1 ngày làm việc (giờ Việt Nam, UTC+7)."""
     vn = timezone(timedelta(hours=7))
     start = datetime(day.year, day.month, day.day, 8, 30, tzinfo=vn) + timedelta(minutes=rng.randint(-15, 15))
@@ -88,7 +88,10 @@ def day_history(dev, day, rng):
             kind = rng.choice(["NECK_TRUNK", "NECK_TRUNK", "NECK_TRUNK", "SHOULDER_TILT", "TOO_CLOSE"])
             events += dev.alert_pair(t + timedelta(seconds=rng.randint(0, 20)), rng.randint(15, 90), kind)
             alerts = {kind: 1}
-        metrics.append(dev.metric(t, bad_ratio=1 - good, alerts=alerts))
+        # lớp tư thế xấu (model v4): sáng chủ yếu đầu đưa ra trước, càng về chiều càng gù / cúi người
+        mix = {"FORWARD_HEAD": max(0.2, 0.55 - fatigue), "SLOUCH": 0.2 + fatigue, "LEAN_FORWARD": 0.15 + fatigue / 2,
+               "LEAN_BACKWARD": 0.05, "NECK_EXTENSION": 0.03}
+        metrics.append(dev.metric(t, bad_ratio=1 - good, alerts=alerts, bad_class=mix, with_classes=classes))
         if (t - last_eye).total_seconds() >= 1200:
             events.append(dev.reminder(t))
             last_eye = t
@@ -107,7 +110,7 @@ def cmd_seed(a, token):
     for k in range(a.devices):
         dev = Device(seed=rng.random())
         for d in days:
-            events, metrics = day_history(dev, d, rng)
+            events, metrics = day_history(dev, d, rng, classes=not a.no_classes)
             items = [("e", e) for e in events] + [("m", m) for m in metrics]
             for i in range(0, len(items), a.batch):
                 chunk = items[i:i + a.batch]
@@ -204,6 +207,7 @@ def main():
         if name == "seed":
             p.add_argument("--days", type=int, default=7)
             p.add_argument("--weekends", action="store_true", help="sinh cả thứ 7, chủ nhật")
+            p.add_argument("--no-classes", action="store_true", help="không gửi postureClassSeconds (giả lập client cũ)")
             p.add_argument("--batch", type=int, default=200, help="số mục / lô")
         else:
             p.add_argument("--duration", type=float, default=60)

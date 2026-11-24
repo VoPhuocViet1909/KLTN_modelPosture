@@ -446,6 +446,18 @@ class PostureEngine:
         pc = snap.get("postureClass")
         return pc if state == STATE_BAD and pc != "GOOD" else None
 
+    def _metric_posture_class(self, neck_status, snap):
+        """Lớp để cộng dồn vào metrics: theo tracker cổ (đã median + debounce), không phụ thuộc lệch vai/khoảng cách.
+        None khi model cũ (1 output) hoặc cổ chưa có trạng thái rõ."""
+        if self.posture_idx is None:
+            return None
+        if neck_status == "GOOD":
+            return "GOOD"
+        if neck_status in ("BAD", "CANH BAO"):
+            pc = snap.get("postureClass")
+            return pc if pc and pc != "GOOD" else None
+        return None
+
     def _observe(self, state):
         if self.config_sync and hasattr(self.config_sync, 'observations'):
             self.config_sync.observations.put(self.elog.device_id, self.elog.session_id, state)
@@ -840,7 +852,8 @@ class PostureEngine:
                             tilt_rel=t_med if tilt_base is not None else None,
                             tilt_status=tr_tilt.status if tilt_base is not None else None,
                             dist_cm=d_med if ed is not None else None,
-                            dist_status=tr_dist.status if ed is not None else None)
+                            dist_status=tr_dist.status if ed is not None else None,
+                            posture_class=self._metric_posture_class(tr_neck.status, snap))
                 if self.logf and sample_s:
                     self.logf.write(f"{now:.2f},{tr_neck.status},{p_med:.3f},"
                                     + ",".join(f"{ang[k]:.2f}" if ang else "" for k in FEATURES)

@@ -15,6 +15,16 @@ def iso(dt, ms=True):
     return dt.astimezone(timezone.utc).isoformat(timespec="milliseconds" if ms else "seconds").replace("+00:00", "Z")
 
 
+def class_seconds(presence_sec, good_ratio, bad_class=None):
+    """Chia presenceSec thành giây theo lớp: goodRatio -> GOOD, phần còn lại theo tỉ trọng của các lớp xấu."""
+    weights = {bad_class: 1.0} if isinstance(bad_class, str) else dict(bad_class or {"FORWARD_HEAD": 0.6, "SLOUCH": 0.4})
+    total = sum(weights.values())
+    out = {"GOOD": round(presence_sec * good_ratio, 1)}
+    for c, w in weights.items():
+        out[c] = round(presence_sec * (1 - good_ratio) * w / total, 1)
+    return {c: v for c, v in out.items() if v > 0}
+
+
 class Device:
     """Một Desktop App giả: giữ deviceId / sessionId, sinh sự kiện và metrics hợp lệ."""
 
@@ -89,15 +99,18 @@ class Device:
                                             self.config_applied(t(520)), self.session_end(t(590), 590.0)])
 
     # ---------------------------------------------------------------- metrics
-    def metric(self, window_start, bad_ratio=None, alerts=None):
-        """alerts: {alertType: số lần bật cảnh báo trong phút}; None = tự đoán theo goodRatio."""
+    def metric(self, window_start, bad_ratio=None, alerts=None, bad_class=None, with_classes=False):
+        """alerts: {alertType: số lần bật cảnh báo trong phút}; None = tự đoán theo goodRatio.
+
+        with_classes=True thêm postureClassSeconds (model v4): phần tư thế tốt vào GOOD, phần xấu chia cho lớp xấu
+        `bad_class` (mặc định FORWARD_HEAD 60%, SLOUCH 40%); bad_class có thể là tên lớp hoặc dict {lớp: tỉ trọng}."""
         r = self.rng
         good = round(1 - (bad_ratio if bad_ratio is not None else r.uniform(0, 0.5)), 3)
         ws = window_start.replace(second=0, microsecond=0)
         if alerts is None:
             alerts = {"NECK_TRUNK": 1} if good < 0.7 else {}
         score = max(0, min(100, round(100 * (0.6 * good + 0.4) - 5 * sum(alerts.values()))))
-        return {"metricId": str(uuid.uuid5(uuid.NAMESPACE_URL, f"{self.session_id}/{int(ws.timestamp())}")),
+        m = {"metricId": str(uuid.uuid5(uuid.NAMESPACE_URL, f"{self.session_id}/{int(ws.timestamp())}")),
                 "userId": self.user_id, "deviceId": self.device_id, "sessionId": self.session_id,
                 "windowStart": iso(ws, ms=False), "windowSec": 60, "coveredSec": 60.0, "samples": 600,
                 "presenceSec": 60.0, "goodRatio": good, "pBadMean": round(1 - good, 2),
@@ -108,6 +121,9 @@ class Device:
                 "distanceMeanCm": round(r.uniform(50, 65), 1), "distanceMinCm": round(r.uniform(44, 50), 1),
                 "tooCloseRatio": 0.0, "alertCount": alerts, "postureScore": score,
                 "modelVersion": MODEL_VERSION, "appVersion": APP_VERSION}
+        if with_classes:
+            m["postureClassSeconds"] = class_seconds(m["presenceSec"], good, bad_class)
+        return m
 
     def batch(self, events=(), metrics=()):
         return {"schemaVersion": "1.0", "deviceId": self.device_id, "sentAt": iso(datetime.now(timezone.utc)),
