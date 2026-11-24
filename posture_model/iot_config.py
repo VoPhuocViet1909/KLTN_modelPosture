@@ -11,7 +11,8 @@ import os
 import sys
 from urllib.parse import urlsplit
 
-APP_DIR = os.path.dirname(sys.executable) if getattr(sys, "frozen", False) else os.path.dirname(os.path.abspath(__file__))
+from runtime_paths import data_directory
+APP_DIR = str(data_directory())
 PATH = os.path.join(APP_DIR, "iot_config.json")
 
 # tên mDNS posture-esp32.local thường không phân giải được trên Windows -> mặc định dùng IP

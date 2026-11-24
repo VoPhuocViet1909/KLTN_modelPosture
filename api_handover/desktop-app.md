@@ -41,7 +41,7 @@ Nguồn: https://pypi.org/pypi/pyinstaller/6.22.3/json, https://pyinstaller.org/
 QSettings dùng API Qt có sẵn: https://doc.qt.io/qtforpython-6/PySide6/QtCore/QSettings.html.
 
 Kiểm 18/10/2026: build portable thành công (~433 MiB), mở `.exe` hiện màn **Thiết lập Posture Monitor**
-trên Windows, tiến trình phản hồi; đã tạo shortcut Desktop trên máy phát triển. Không kèm cấu hình/token/outbox/log.
+trên Windows, tiến trình phản hồi; đã tạo tệp khởi chạy Desktop trên máy phát triển. Không kèm cấu hình/token/outbox/log.
 `test_setup.py` đạt (validate/lưu lựa chọn/preview nền/giải phóng camera/đổi camera/hủy), login 9/9,
 engine 4/4, calibration 16/16 đạt. Qt E2E bằng video/landmark giả: CALIBRATING→GOOD→BAD→GOOD,
 nhịp UI tối đa 47 ms. Tokens/labels được đối chiếu trực tiếp với repo `KLTN_dashboard`, đạt.
@@ -282,3 +282,17 @@ Hiện chỉ UI PySide6 dùng: `postureClass`, `postureLabel` (tiếng Việt) v
 ### Đề xuất để bàn với Tân (chưa làm)
 
 Thêm trường tùy chọn `postureClass` (enum 6 giá trị trên, bỏ qua nếu không có) vào `snapshot` của sự kiện `ALERT_STARTED`/`ALERT_RESOLVED` và/hoặc vào bản ghi telemetry/metrics 60 giây (kèm `postureClassMode` là lớp xuất hiện nhiều nhất trong cửa sổ). Lợi ích: Dashboard có thể hiện "Gù lưng", "Đầu đưa ra trước" thay vì chỉ "BAD", và thống kê theo loại tư thế. Cần Tân chốt: tên trường, enum có viết hoa như `classes` không, thêm vào `schemas/` và `openapi.yaml` thế nào, và Dashboard có cần lọc theo lớp không. Chưa chốt thì Desktop không gửi.
+
+### Cài và đổi phiên bản Windows (bước 15)
+
+Gói mới có file release-layout-v1. Đóng ứng dụng rồi chạy trong PowerShell:
+
+```powershell
+./release/Install-PostureMonitor.ps1 -Package ./posture_model/dist/PostureMonitor -Version 1.0
+./release/Install-PostureMonitor.ps1 -Package ./new-package/PostureMonitor -Version 1.1
+./release/Install-PostureMonitor.ps1 -Activate -Version 1.0
+```
+
+Shortcut ở `%LOCALAPPDATA%/PostureMonitor/Posture Monitor.cmd`. Mỗi phiên bản có thư mục binary riêng. Cấu hình và outbox mặc định ở `%LOCALAPPDATA%/PostureMonitor/data`. Để tiếp tục dùng dữ liệu portable cũ, truyền `-DataDir` với đường dẫn thư mục portable cũ ở lần cài đầu và giữ thư mục đó. Khi người dùng mở trực tiếp gói portable không có marker đường dẫn, app dùng bố cục cạnh exe như trước. Chuyển về bản cài trước chỉ đổi tệp khởi chạy. Với thay đổi schema outbox trong một bản phát hành tương lai cần xác nhận tương thích ngược trước khi quay lui.
+
+Workflow Windows build bằng PyInstaller 6.22.3 đã dùng trong dự án, rồi chuyển artifact sang một runner mới. Smoke test mở GUI với PATH chỉ có Windows, dùng hai thư mục phát hành từ cùng artifact và kiểm hash cấu hình/outbox fixture sau khi đổi A→B→A. Môi trường không có webcam vật lý. Kiểm nguồn ngày 24/11/2026: [image Windows Server 2025](https://github.com/actions/runner-images/blob/main/images/windows/Windows2025-Readme.md), [runtime PyInstaller](https://pyinstaller.org/en/stable/runtime-information.html), [action download-artifact v8.0.2](https://github.com/actions/download-artifact/releases/tag/v8.0.2).

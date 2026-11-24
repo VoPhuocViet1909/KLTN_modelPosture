@@ -1,7 +1,7 @@
 """Cửa sổ co giãn. Hai trang: Đăng nhập (LoginView) và Trạng thái (thước dọi, nhãn trạng thái, thời gian ngồi,
 khoảng cách mắt–màn hình, kết nối). Không hiện camera mặc định; nút 'Xem camera' mở cửa sổ riêng."""
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import (QComboBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QMainWindow, QPushButton, QStackedWidget,
+from PySide6.QtWidgets import (QCheckBox, QComboBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QMainWindow, QPushButton, QStackedWidget,
                                QScrollArea, QVBoxLayout, QWidget)
 
 from ui import icons
@@ -175,6 +175,7 @@ class MainWindow(QMainWindow):
         self.stream_camera = QComboBox()
         self.stream_camera.addItem("Camera hông", "side")
         self.stream_camera.addItem("Camera trước", "front")
+        self.stream_camera.addItem("Cả hai camera", "both")
         self.stream_camera.setAccessibleName("Camera chia sẻ lên web")
         self.stream_camera.setMinimumHeight(44)
         choice.addWidget(self.stream_camera, 1)
@@ -183,6 +184,10 @@ class MainWindow(QMainWindow):
         self.btn_stream.clicked.connect(lambda: self.streamRequested.emit(None if self._sharing else self.stream_camera.currentData()))
         choice.addWidget(self.btn_stream)
         sl.addLayout(choice)
+        self._sharing = False
+        self.stream_org = QCheckBox("Chia sẻ với quản trị viên tổ chức")
+        self.stream_org.setMinimumHeight(44)
+        sl.addWidget(self.stream_org)
         self.stream_note = QLabel()
         self.stream_note.setObjectName("note")
         self.stream_note.setWordWrap(True)
@@ -205,22 +210,38 @@ class MainWindow(QMainWindow):
 
     def set_stream(self, info, available):
         self.stream_device.setText('Mã thiết bị trên web: ' + info['deviceId'] if available and info.get('deviceId') else '')
-        camera = info.get("camera")
-        self._sharing = bool(camera)
-        self.btn_stream.setText("Dừng chia sẻ" if camera else "Bật chia sẻ")
+        states = info.get("states", {})
+        was_sharing = self._sharing
+        self._sharing = bool(states)
+        org_available = available and bool(info.get("organizationAvailable"))
+        self.stream_org.setVisible(org_available)
+        self.stream_org.setEnabled(org_available and not self._sharing)
+        if self._sharing:
+            self.stream_org.setChecked(bool(info.get("organizationSharing")))
+        elif not org_available or was_sharing:
+            self.stream_org.setChecked(False)
+        self.btn_stream.setText("Dừng chia sẻ" if self._sharing else "Bật chia sẻ")
         self.btn_stream.setEnabled(available)
-        self.stream_camera.setEnabled(available and not camera)
-        self.stream_camera.model().item(1).setEnabled(bool(info.get("frontAvailable")))
-        if camera:
+        self.stream_camera.setEnabled(available and not self._sharing)
+        front_available = bool(info.get("frontAvailable"))
+        for index in (1, 2):
+            self.stream_camera.model().item(index).setEnabled(front_available)
+        if self._sharing:
+            camera = "both" if len(states) == 2 else next(iter(states))
             self.stream_camera.setCurrentIndex(self.stream_camera.findData(camera))
-        elif not info.get("frontAvailable"):
+        elif not front_available:
             self.stream_camera.setCurrentIndex(0)
-        status = {
-            "connecting": "Đang kết nối để chia sẻ camera…",
-            "publishing": "Đang chia sẻ. Mở Tổng quan trên web, chọn cùng camera rồi bấm Xem camera.",
-            "retrying": "Chưa truyền được hình. Kiểm tra kết nối máy chủ; ứng dụng đang thử lại.",
-        }.get(info.get("state"), "Chưa chia sẻ camera." if available else "Đăng nhập và mở camera để chia sẻ lên web.")
-        self.stream_note.setText(info.get("error") or status)
+        labels = {"side": "Camera hông", "front": "Camera trước"}
+        messages = {
+            "connecting": "Đang kết nối…",
+            "publishing": "Đang chia sẻ",
+            "retrying": "Đang thử lại",
+        }
+        notes = [f"{labels[angle]}: {messages.get(state, 'Đã dừng')}" for angle, state in states.items()]
+        if info.get("error"):
+            notes.append(info["error"])
+        self.stream_note.setText("\n".join(notes) if notes else (
+            "Chưa chia sẻ camera." if available else "Đăng nhập và mở camera để chia sẻ lên web."))
 
     def closeEvent(self, e):
         """Đóng cửa sổ = thu xuống khay; chỉ thoát bằng menu khay."""

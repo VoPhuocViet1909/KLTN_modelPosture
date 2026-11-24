@@ -15,5 +15,6 @@ python -m PyInstaller --noconfirm --windowed --name PostureMonitor ^
   --add-data "schemas;schemas" ^
   --add-data "ui;ui" app.py
 if errorlevel 1 exit /b 1
+echo 1>dist\PostureMonitor\release-layout-v1
 echo Open dist\PostureMonitor\PostureMonitor.exe (keep the whole folder).
 REM Never copy app_config.json, outbox, credentials or runtime logs into a release.
