@@ -17,6 +17,8 @@ class EngineBridge(QObject, EngineListener):
     frame = Signal(object)
     finished = Signal(str, dict)
     error = Signal(str)
+    survey = Signal(str)
+    survey_hide = Signal()
 
     FRAME_EVERY = 1 / 15          # tối đa 15 khung/giây sang giao diện
 
@@ -32,6 +34,8 @@ class EngineBridge(QObject, EngineListener):
     def on_config(self, c): self.config.emit(c)
     def on_finished(self, reason, stats): self.finished.emit(reason, stats)
     def on_error(self, msg): self.error.emit(msg)
+    def on_survey(self, session_id): self.survey.emit(session_id)
+    def on_survey_hide(self): self.survey_hide.emit()
 
     def on_frame(self, f):
         now = time.monotonic()

@@ -29,6 +29,7 @@ from ui import icons
 from ui.bridge import EngineBridge, EngineThread, QtNotifier, Task
 from ui.camera_view import CameraView
 from ui.main_window import MainWindow
+from ui.survey_card import SurveyCard
 from ui.theme import apply_theme
 from ui.tokens import alert_info, color, status_color
 from ui.tray import TrayController, make_icon
@@ -136,6 +137,10 @@ class AppController(QObject):
         b.finished.connect(self._on_finished)
         b.error.connect(self._on_error)
         b.alert.connect(self._remember_progress_episode)
+        self.survey_card = SurveyCard(self.window)
+        b.survey.connect(self._show_survey)
+        b.survey_hide.connect(self.survey_card.dismiss)
+        self.survey_card.answered.connect(self._answer_survey)
         self.window.progressRequested.connect(self.show_progress)
         self.window.telemetryRequested.connect(self.show_telemetry)
         self.window.workspaceRequested.connect(self.show_workspace)
@@ -195,9 +200,13 @@ class AppController(QObject):
         def configure():
             from ui.setup_view import SetupDialog
             self.camera.hide()
+            research_store = self._open_research_store() if mode == "session" else None
             dialog = SetupDialog(camera_opts.side, camera_opts.front, self.base_url, self.window,
-                                 server_editable=mode != "session", iot=self.iot)
-            if dialog.exec() == SetupDialog.Accepted:
+                                 server_editable=mode != "session", iot=self.iot, research_store=research_store)
+            accepted = dialog.exec() == SetupDialog.Accepted
+            if research_store is not None:
+                research_store.close()
+            if accepted:
                 side, front, server = dialog.result_values
                 self.opts = dataclasses.replace(self.opts, side=side, front=front,
                                                 side_video=None, front_video=None)
@@ -379,7 +388,8 @@ class AppController(QObject):
             config_sync = ConfigSync(auth)
         except ImportError:
             print("Thiếu python-socketio: không đồng bộ cấu hình. Cài bằng pip install -r requirements.txt")
-        opts = dataclasses.replace(self.opts, send=True, outbox=self._user_outbox(auth))
+        opts = dataclasses.replace(self.opts, send=True, outbox=self._user_outbox(auth),
+                                   research_db=self._research_db(auth))
         from alerts import machine_device_id
         from workspace_profiles import CAMERA_DEFAULTS
         self.cfg.apply_profile(CAMERA_DEFAULTS)
@@ -400,6 +410,30 @@ class AppController(QObject):
         self._telemetry_path = opts.outbox
         self._run_engine(opts, auth, config_sync, "session")
         self.window.set_account(auth.email or auth.name)
+
+    def _research_db(self, auth):
+        """CSDL nghiên cứu theo (máy chủ, tài khoản): đổi người dùng không mang cờ sang người khác."""
+        from research import research_path
+        return research_path(os.path.join(os.path.dirname(self.default_outbox), "research"), auth.base_url, auth.user_id)
+
+    def _open_research_store(self):
+        from research import ResearchStore
+        if not self.auth:
+            return None
+        try:
+            return ResearchStore(self._research_db(self.auth))
+        except (OSError, sqlite3.Error):
+            return None
+
+    @Slot(str)
+    def _show_survey(self, session_id):
+        if self.mode == "session" and not self._leaving:
+            self.survey_card.present()
+
+    @Slot(str)
+    def _answer_survey(self, value):
+        if self.engine is not None:
+            self.engine.answer_survey(value)
 
     def _on_local(self):
         """'Dùng không đăng nhập': chỉ nhắc tại chỗ, không ghi outbox, không gửi gì."""

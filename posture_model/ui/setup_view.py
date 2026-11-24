@@ -1,4 +1,5 @@
 """Thiết lập cục bộ; ảnh kiểm tra chỉ ở RAM, không ghi hoặc gửi lên máy chủ."""
+import sqlite3
 from urllib.parse import urlsplit
 
 import cv2
@@ -9,6 +10,7 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, 
                                QSizePolicy, QVBoxLayout, QWidget)
 
 import iot_config
+import research
 from iot_notifier import probe
 from live_stream import validate_rtsp_base
 from ui.bridge import Task
@@ -68,8 +70,9 @@ def snapshots(side, front, capture=None):
 
 
 class SetupDialog(QDialog):
-    def __init__(self, side, front, server, parent=None, server_editable=True, iot=None):
+    def __init__(self, side, front, server, parent=None, server_editable=True, iot=None, research_store=None):
         super().__init__(parent)
+        self.research_store = research_store      # ResearchStore của tài khoản + máy chủ đang đăng nhập; None = chưa đăng nhập
         self.iot = iot                  # IotNotifier đang chạy trong app (None khi mở lần đầu): lưu xong áp dụng ngay
         self.iot_task = None
         self.setWindowTitle("Thiết lập Posture Monitor")
@@ -161,6 +164,7 @@ class SetupDialog(QDialog):
         next_step.setObjectName("note")
         lay.addWidget(next_step)
         lay.addWidget(self._iot_panel())
+        lay.addWidget(self._research_panel())
         self.error = QLabel()
         self.error.setObjectName("error")
         self.error.setWordWrap(True)
@@ -226,6 +230,47 @@ class SetupDialog(QDialog):
         if cfg["enabled"]:
             self.iot_probe(False)
         return card
+
+    # ---------------------------------------------------------------- tham gia nghiên cứu
+    def _research_panel(self):
+        card = QFrame()
+        card.setObjectName("panel")
+        lay = QVBoxLayout(card)
+        heading = QLabel("Tham gia nghiên cứu")
+        heading.setObjectName("sectionTitle")
+        lay.addWidget(heading)
+        note = QLabel(research.DESCRIPTION)
+        note.setObjectName("note")
+        note.setWordWrap(True)
+        lay.addWidget(note)
+        cur = self.research_store.get() if self.research_store is not None else dict(enabled=False, code=None)
+        self.research_enabled = QCheckBox("Tham gia nghiên cứu")
+        self.research_enabled.setChecked(cur["enabled"])
+        self.research_code = QLineEdit(cur["code"] or "")
+        self.research_code.setPlaceholderText("P04")
+        self.research_code.setMaxLength(3)
+        self.research_code.setAccessibleName("Mã nghiên cứu, dạng P và hai chữ số")
+        form = QFormLayout()
+        form.addRow("Mã nghiên cứu", self.research_code)
+        lay.addWidget(self.research_enabled)
+        lay.addLayout(form)
+        if self.research_store is None:
+            self.research_enabled.setEnabled(False)
+            self.research_code.setEnabled(False)
+            hint = QLabel("Đăng nhập trước để bật. Lựa chọn được lưu riêng cho từng tài khoản và máy chủ.")
+            hint.setObjectName("note")
+            hint.setWordWrap(True)
+            lay.addWidget(hint)
+        return card
+
+    def research_values(self):
+        """(enabled, code) hoặc ném ValueError nếu bật mà mã sai dạng. Không có store thì không đổi gì (None)."""
+        if self.research_store is None:
+            return None
+        enabled, code = self.research_enabled.isChecked(), self.research_code.text().strip().upper()
+        if (enabled or code) and not research.valid_code(code):
+            raise ValueError("Mã nghiên cứu có dạng P và hai chữ số, ví dụ P04.")
+        return enabled, code
 
     def iot_values(self):
         url = self.iot_url.text().strip()
@@ -334,6 +379,7 @@ class SetupDialog(QDialog):
             return
         try:
             iot_cfg = self.iot_values()
+            research_vals = self.research_values()
         except ValueError as e:
             self.error.setText(str(e))
             return
@@ -350,6 +396,12 @@ class SetupDialog(QDialog):
         if not iot_config.save(iot_cfg):
             self.error.setText(labels()["iot"]["save_failed"])
             return
+        if research_vals is not None:
+            try:
+                self.research_store.save(*research_vals)
+            except (ValueError, sqlite3.Error) as e:
+                self.error.setText(f"Không lưu được chế độ nghiên cứu: {e}")
+                return
         if self.iot is not None:
             self.iot.apply(iot_cfg)                  # áp dụng ngay, không cần khởi động lại
         self.result_values = values
