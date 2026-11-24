@@ -45,6 +45,20 @@ def _mean(xs):
     return round(sum(xs) / len(xs), 2) if xs else None
 
 
+def class_seconds(cls, presence):
+    """Số giây theo lớp, tổng ≤ presenceSec (đã làm tròn 0,1 giây). Tổng vượt thì co đều theo tỷ lệ TRƯỚC khi làm
+    tròn; làm tròn xong vẫn vượt thì trừ 0,1 ở lớp bị làm tròn lên nhiều nhất (giữ tỷ lệ giữa các lớp)."""
+    cap = round(presence, 1)
+    total = sum(cls.values())
+    scale = presence / total if total > presence > 0 else (0.0 if total > presence else 1.0)
+    exact = {c: v * scale for c, v in cls.items()}
+    out = {c: round(v, 1) for c, v in exact.items()}
+    while sum(out.values()) > cap + 1e-9:
+        c = max((c for c in out if out[c] > 0), key=lambda c: out[c] - exact[c])
+        out[c] = round(out[c] - 0.1, 1)
+    return {c: v for c, v in out.items() if v > 0}
+
+
 class _Window:
     def __init__(self, start):
         self.start = start
@@ -142,7 +156,7 @@ class MetricsAggregator:
             "modelVersion": self.model_version, "appVersion": self.app_version,
         }
         if w.cls:                                     # chỉ gửi khi model có lớp (model cũ: bỏ trường, vẫn hợp lệ)
-            secs = {c: round(min(v, w.presence), 1) for c, v in w.cls.items() if round(v, 1) > 0}
+            secs = class_seconds(w.cls, w.presence)
             if secs:
                 m["postureClassSeconds"] = secs
         if self.timing_v1:

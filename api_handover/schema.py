@@ -2,7 +2,7 @@
 Kiểm tra dữ liệu theo JSON Schema trong thư mục schemas/ (dùng chung với backend Spring ở giai đoạn 3).
 
 Không cần cài thêm thư viện: tự kiểm tra tập con JSON Schema mà các file schema dùng
-(type, enum, const, required, properties, additionalProperties (schema hoặc false), items, minimum, maximum, minLength, maxItems,
+(type, enum, const, required, properties, additionalProperties (schema hoặc false), items, minimum, maximum, minLength, pattern, maxItems,
 format date-time / uuid, allOf, if/then, $ref tới file khác trong schemas/).
 
   from schema import validate
@@ -82,6 +82,8 @@ def _check(s, v, path, errs):
     if isinstance(v, str):
         if "minLength" in s and len(v) < s["minLength"]:
             errs.append(f"{path}: chuỗi rỗng")
+        if "pattern" in s and not re.search(s["pattern"], v):
+            errs.append(f"{path}: không khớp mẫu {s['pattern']}")
         if "format" in s and not _fmt_ok(s["format"], v):
             errs.append(f"{path}: sai định dạng {s['format']}")
     if isinstance(v, dict):

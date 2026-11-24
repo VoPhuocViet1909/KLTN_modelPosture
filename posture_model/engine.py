@@ -32,6 +32,7 @@ from alerts import AlertTracker, EventLog, PresenceTracker, Reminders
 from app_config import AppConfig
 from distance import EyeDistance
 from live_stream import LivePublisher
+from frame_guard import FrozenFrameGuard
 from metrics import MetricsAggregator
 from notifier import Notifier, NotifierBase
 from outbox import Outbox
@@ -77,6 +78,12 @@ class EngineListener:
     def on_finished(self, reason, stats):
         """reason: quit | video_end | camera_lost | max_sec | stopped | error. stats = thống kê outbox."""
 
+    def on_survey(self, session_id):
+        """Đến lúc hiện thẻ hỏi phút 120 (chỉ khi tham gia nghiên cứu). Trả lời qua engine.answer_survey()."""
+
+    def on_survey_hide(self):
+        """Thẻ hỏi hết hạn / phiên kết thúc: ẩn thẻ."""
+
     def on_error(self, message):
         """Không khởi động được hoặc vòng lặp gặp lỗi."""
 
@@ -101,6 +108,7 @@ class EngineOptions:
     workspace_name: str = 'Chưa gán vị trí'
     workspace_db: str = None
     render_legacy: bool = False        # vẽ vis_side/vis_front kiểu OpenCV cũ (CLI); Qt tự vẽ nên để False
+    research_db: str = None            # CSDL chế độ nghiên cứu theo (máy chủ, tài khoản); None = không dùng
     send: bool = True                  # False = chế độ không đăng nhập: chỉ nhắc tại chỗ, không ghi outbox, không gửi
 
 
@@ -122,6 +130,7 @@ class _LocalSender:
 
     def enqueue_event(self, ev): pass
     def enqueue_metric(self, m): pass
+    def enqueue_survey(self, item_id, payload): pass
     def configure(self, *a, **k): pass
     def start(self): pass
     def stop(self, timeout=None): pass
@@ -380,6 +389,7 @@ class PostureEngine:
                                      self.user_id(), window_sec=cfg["metrics_window_sec"],
                                      model_version=self.model_cfg.get("version"), app_version=EventLog.APP_VERSION)
         self.elog.listeners += [self.sender.enqueue_event, self.agg.on_event]
+        self.survey = self._make_survey(o)
         self.sender.start()
         self.elog.emit(dict(eventType="SESSION_START", t=0.0, frontCam=self.cap_f is not None,
                             distanceMethod=None if self.ed is None else ("iris" if self.ed.det else "ipd")),
@@ -395,6 +405,27 @@ class PostureEngine:
             self.request_stream(o.stream_camera)
         if self.config_sync:
             self.config_sync.start()
+
+    def _make_survey(self, o):
+        """Thẻ hỏi phút 120: chỉ khi đăng nhập, có CSDL nghiên cứu và người dùng đã bật. Lỗi thì bỏ qua, không chặn phiên."""
+        self.research_store = None
+        if not (o.send and self.auth is not None and o.research_db):
+            return None
+        try:
+            from research import ResearchStore, SurveyScheduler
+            self.research_store = ResearchStore(o.research_db)
+            sch = SurveyScheduler(self.research_store, self.auth.user_id, self.elog.session_id,
+                                  emit=lambda i, p: self.sender.enqueue_survey(i, p),
+                                  show=self.listener.on_survey, hide=self.listener.on_survey_hide)
+            return sch if sch.begin() == "invited" else None
+        except Exception as e:
+            print("Chế độ nghiên cứu không chạy được, bỏ qua:", e)
+            return None
+
+    def answer_survey(self, value):
+        """Từ giao diện (luồng khác). value: none|neck|lower_back|both|skip. True nếu được ghi nhận."""
+        sch = getattr(self, "survey", None)
+        return bool(sch and sch.answer(value))
 
     def _on_metric(self, m):
         self.last_metric = m
@@ -551,6 +582,7 @@ class PostureEngine:
         Ls_draw = Lf_draw = None
         frame_i, t_start, now = 0, time.time(), 0.0
         side_missing = front_missing = None
+        guard_s, guard_f = FrozenFrameGuard(), FrozenFrameGuard()   # khung trùng y hệt ≥ 2 giây = mất tín hiệu
         last_state_t = last_sync_t = -1e9
         last_state = last_stage = None
         self._neck_observed = False
@@ -847,13 +879,20 @@ class PostureEngine:
                     emit(rem.update(now))
 
                 if sample_s:                              # cùng mẫu với log.csv -> gộp metrics 60 giây
-                    agg.add(now, present=not pres.away and (Ls is not None or Lf is not None),
-                            neck_status=tr_neck.status, p_bad=p_med if len(buf) == WIN else None, ang=ang,
-                            tilt_rel=t_med if tilt_base is not None else None,
-                            tilt_status=tr_tilt.status if tilt_base is not None else None,
-                            dist_cm=d_med if ed is not None else None,
-                            dist_status=tr_dist.status if ed is not None else None,
-                            posture_class=self._metric_posture_class(tr_neck.status, snap))
+                    frozen_s = False if use_video else guard_s.update(fs, now)
+                    frozen_f = True if ff is None else False if use_video else guard_f.update(ff, now)
+                    if frozen_s and frozen_f:
+                        pass                              # mọi camera đứng khung: không có mẫu, coveredSec không tăng
+                    else:
+                        agg.add(now, present=not pres.away and (Ls is not None or Lf is not None),
+                                neck_status=None if frozen_s else tr_neck.status,
+                                p_bad=p_med if len(buf) == WIN and not frozen_s else None,
+                                ang=None if frozen_s else ang,
+                                tilt_rel=t_med if tilt_base is not None else None,
+                                tilt_status=tr_tilt.status if tilt_base is not None else None,
+                                dist_cm=d_med if ed is not None else None,
+                                dist_status=tr_dist.status if ed is not None else None,
+                                posture_class=None if frozen_s else self._metric_posture_class(tr_neck.status, snap))
                 if self.logf and sample_s:
                     self.logf.write(f"{now:.2f},{tr_neck.status},{p_med:.3f},"
                                     + ",".join(f"{ang[k]:.2f}" if ang else "" for k in FEATURES)
@@ -867,6 +906,8 @@ class PostureEngine:
                                            else "...", t_med)
                         draw_distance(vis_f, d_med, tr_dist.status)
 
+            if self.survey is not None:
+                self.survey.tick(away=pres.away or calibrating)
             # ------------------------------------------------ phát cho giao diện
             wall = time.time()
             st = 'UNKNOWN' if front_missing else self._posture_state(calibrating)
@@ -935,6 +976,10 @@ class PostureEngine:
             self.iot.close()                              # báo OFFLINE cho thiết bị, dừng luồng nền
         self.agg.flush()                                  # cửa sổ metrics cuối (chưa đủ 60 giây)
         self.metrics_f.close()
+        if getattr(self, "survey", None) is not None:
+            self.survey.end()                             # thẻ chưa trả lời -> ended_early, vào outbox trước khi dừng sender
+        if getattr(self, "research_store", None) is not None:
+            self.research_store.close()
         self.sender.stop(timeout=None)                    # Chờ worker xong trước khi đóng SQLite, kể cả refresh.
         st = self.outbox.stats()
         self.outbox.close()

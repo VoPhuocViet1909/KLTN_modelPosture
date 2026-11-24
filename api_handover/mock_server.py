@@ -25,6 +25,9 @@ Endpoint:
   GET  /api/v1/stats/me/timeseries    -> [{start, meanScore, badMinutes, presenceMinutes, alerts}] theo giờ / ngày
   GET  /api/v1/stats/me/heatmap       -> 168 ô {weekday, hour, meanScore} (giờ Việt Nam)
   GET  /api/v1/stats/org/summary      -> như summary, cho cả tổ chức (ORG_ADMIN)
+  POST /api/v1/research/survey        -> (ĐỀ XUẤT, chờ Tân) lưu câu trả lời khảo sát phút 120, idempotent theo
+                                         (participant, session): lần đầu 201, gửi lại cùng khoá 200 cùng nội dung
+  GET  /api/v1/research/survey/me     -> (ĐỀ XUẤT, chờ Tân) các câu trả lời của chính người gọi {items}
   GET  /api/v1/stats                  -> (chỉ mock) đếm số sự kiện / metrics đã nhận
 Lịch sử và thống kê tính lại từ dữ liệu đã nhận (history.py), cùng quy tắc với backend. Lỗi của các endpoint này
 dùng body chuẩn {code, message, traceId, errors}; các endpoint cũ vẫn trả {error}.
@@ -82,6 +85,15 @@ class Store:
         self.tokens = {}        # accessToken -> (userId, exp)
         self.refresh = {}       # refreshToken -> userId
         self.configs = {}       # userId -> dict
+        self.surveys = {}       # (participant, session) -> {owner, record}
+        p = os.path.join(folder, "survey.jsonl")
+        if os.path.exists(p):
+            for line in open(p, encoding="utf-8"):
+                try:
+                    d = json.loads(line)
+                    self.surveys[(d["record"]["participant"], d["record"]["session"])] = d
+                except (ValueError, KeyError):
+                    continue
         self.recent = collections.deque(maxlen=200)   # mục mới nhận, cho trang xem trực tiếp
         self.rows = {"events": [], "metrics": []}    # mọi mục đã nhận (kèm _receivedUserId), cho /alerts và /stats
         for name in ("events", "metrics"):           # nạp dữ liệu cũ để chống trùng cả khi khởi động lại server
@@ -111,6 +123,19 @@ class Store:
                 self.n_metrics += 1
             self.recent.append({"kind": kind, "receivedAt": time.time(), "item": item})
         return True
+
+    def add_survey(self, owner, record):
+        """-> (created, stored | None). Trùng khoá thì trả bản đã lưu, không ghi thêm; khác chủ thì (False, None)."""
+        key = (record["participant"], record["session"])
+        with self.lock:
+            old = self.surveys.get(key)
+            if old:
+                return (False, old["record"]) if old["owner"] == owner else (False, None)
+            row = {"owner": owner, "record": record, "receivedAt": time.time()}
+            with open(os.path.join(self.folder, "survey.jsonl"), "a", encoding="utf-8") as f:
+                f.write(json.dumps(row, ensure_ascii=False) + "\n")
+            self.surveys[key] = row
+        return True, record
 
     def issue(self, user_id, device_id):
         access, refresh = make_jwt(user_id, device_id), secrets.token_urlsafe(24)
@@ -239,6 +264,12 @@ def make_handler(store, static_token, require_auth, fail_rate, quiet):
                                         "items": list(store.recent)[-80:][::-1]})
             if self.path == "/api/v1/stats":
                 return self._json(200, {"events": dict(store.by_type), "metrics": store.n_metrics})
+            if self.path == "/api/v1/research/survey/me":
+                uid, err = self._user()
+                if err or uid is None:
+                    return self._error(401, "AUTH_TOKEN_MISSING", "Authentication required.")
+                with store.lock:
+                    return self._json(200, {"items": [r["record"] for r in store.surveys.values() if r["owner"] == uid]})
             if self.path == "/api/v1/config/me":
                 uid, err = self._user()
                 if err or uid is None:
@@ -282,6 +313,20 @@ def make_handler(store, static_token, require_auth, fail_rate, quiet):
                     return self._json(401, {"error": "refresh token không hợp lệ"})
                 access, refresh = store.issue(*rec)
                 return self._json(200, {"accessToken": access, "refreshToken": refresh, "expiresIn": ACCESS_TTL})
+            if self.path == "/api/v1/research/survey":
+                uid, err = self._user()
+                if err or uid is None:
+                    return self._error(401, "AUTH_TOKEN_MISSING", "Authentication required.")
+                if fail_rate and random.random() < fail_rate:
+                    return self._json(503, {"error": "simulated outage"})
+                errs = validate("survey", body) if isinstance(body, dict) else ["body phải là object"]
+                if errs:
+                    return self._error(400, "VALIDATION_FAILED", "Invalid survey.",
+                                       [{"field": "body", "message": e} for e in errs[:5]])
+                created, record = store.add_survey(uid, body)
+                if record is None:
+                    return self._error(409, "SURVEY_OWNED_BY_OTHER", "Survey belongs to another user.")
+                return self._json(201 if created else 200, record)
             if self.path != "/api/v1/telemetry/batch":
                 return self._json(404, {"error": "not found"})
 

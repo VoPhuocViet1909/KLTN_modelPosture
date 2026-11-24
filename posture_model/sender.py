@@ -27,6 +27,7 @@ from api_session import AuthError, NoRedirect
 
 URGENT = {"ALERT_STARTED", "ALERT_REPEATED", "ALERT_RESOLVED", "USER_AWAY", "USER_BACK"}
 LOCAL_ONLY_KEYS = ("notify",)          # khoá chỉ dùng trong app, không gửi lên server
+LOCAL_ONLY_SURVEY_KEYS = ("userId",)   # chỉ để outbox kiểm chủ sở hữu; server biết người dùng qua token
 LOCAL_ONLY_EVENTS = {"CALIBRATION_FAILED"}   # sự kiện chỉ ghi ở máy (events.jsonl), không thuộc 10 loại của ingestion
 
 
@@ -72,6 +73,10 @@ class Sender(threading.Thread):
     def enqueue_metric(self, m):
         self.q.put(("metric", m["metricId"], m, False))
 
+    def enqueue_survey(self, item_id, payload):
+        self.q.put(("survey", item_id, payload, True))
+        self._wake.set()
+
     def configure(self, base_url=None, token=None, interval=None, batch_max=None):
         self.base_url = (base_url or "").rstrip("/") or None
         self.token = token
@@ -114,7 +119,9 @@ class Sender(threading.Thread):
                 return
             self.outbox.put(kind, item_id, payload, urgent)
             if self.check_schema:
-                errs = validate("event" if kind == "event" else "metrics", payload)
+                body = ({k: v for k, v in payload.items() if k not in LOCAL_ONLY_SURVEY_KEYS}
+                        if kind == "survey" else payload)
+                errs = validate({"event": "event", "survey": "survey"}.get(kind, "metrics"), body)
                 if errs:
                     print(f"[sender] {kind} {item_id} sai schema, không gửi:", errs[:3])
                     self.outbox.mark_dead([(item_id, "; ".join(errs[:5]))])
@@ -156,6 +163,60 @@ class Sender(threading.Thread):
                 self.last_attempt_ms = elapsed if 0 <= elapsed <= 300000 else None
 
     def _deliver(self, items):
+        surveys = [it for it in items if it[1] == "survey"]
+        rest = [it for it in items if it[1] != "survey"]
+        if rest and not self._deliver_telemetry(rest):
+            return False
+        return all(self._deliver_survey(it) for it in surveys) if surveys else True
+
+    def _deliver_survey(self, item):
+        """POST /api/v1/research/survey, idempotent theo (participant, session). 200/201 = đã nhận; 4xx (trừ 408/429/401/403)
+        = từ chối hẳn (dead); mất mạng/5xx/401/403 = giữ lại thử sau."""
+        item_id, _, payload = item
+        ids = [item_id]
+        try:
+            if self.auth:
+                try:
+                    self.outbox.assert_context(self.auth.base_url, self.auth.user_id)
+                except ValueError:
+                    self._fail(ids, "Outbox source mismatch", offline=True, code="SOURCE_MISMATCH")
+                    return False
+                if payload.get("userId") != self.auth.user_id:
+                    self._fail(ids, "Outbox belongs to another user", offline=True, code="SOURCE_MISMATCH")
+                    return False
+            body = {k: v for k, v in payload.items() if k not in LOCAL_ONLY_SURVEY_KEYS}
+            headers = {"Content-Type": "application/json", "X-Device-Id": self.device_id}
+            if self.token and not self.auth:
+                headers["Authorization"] = f"Bearer {self.token}"
+            req = urllib.request.Request(self.base_url + "/api/v1/research/survey",
+                                         data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
+                                         headers=headers, method="POST")
+            with (self.auth.open(req, timeout=self.timeout) if self.auth else
+                  self._opener.open(req, timeout=self.timeout)) as r:
+                r.read()
+                if r.status not in (200, 201):
+                    raise ValueError("Unexpected status")
+        except urllib.error.HTTPError as e:
+            retry = e.code >= 500 or e.code in (401, 403, 404, 408, 429)   # 404: server chưa có API khảo sát, giữ lại chờ
+            if retry:
+                code = "AUTH_REQUIRED" if e.code in (401, 403) else "THROTTLED" if e.code == 429 else "HTTP_SERVER"
+                self._fail(ids, f"HTTP {e.code}", offline=e.code >= 500 or e.code in (408, 429), code=code)
+                return False
+            self.outbox.mark_dead([(item_id, f"HTTP {e.code}")])
+            return True
+        except AuthError as e:
+            self._fail(ids, str(e), offline=True, code="AUTH_REQUIRED")
+            return False
+        except Exception:
+            self._fail(ids, "Survey unavailable or invalid response", offline=True)
+            return False
+        self.outbox.mark_sent(ids)
+        with self._diagnostic_lock:
+            self.online, self.last_ok, self.last_error, self.last_failure_code = True, time.time(), None, None
+            self.sent_total += 1
+        return True
+
+    def _deliver_telemetry(self, items):
         body = {"schemaVersion": "1.0", "deviceId": self.device_id, "sentAt": _now_iso(),
                 "events": [p for _, k, p in items if k == "event"],
                 "metrics": [p for _, k, p in items if k == "metric"]}

@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kltn.local/schemas/survey.schema.json",
+  "title": "Khảo sát khó chịu phút 120, 1 bản / phiên (nghiên cứu)",
+  "version": "1.0",
+  "description": "Khoá chống trùng: (participant, session). Gửi lại cùng khoá không tạo dòng mới. Hỏi ở 7200 giây kể từ đầu phiên (đồng hồ thật, không trừ lúc rời ghế; nếu đang rời ghế thì chờ có người lại), hạn trả lời 10 phút kể từ lúc thẻ hiện.",
+  "type": "object",
+  "required": ["participant", "session", "status", "answer", "asked_sec", "reply_sec", "question_version", "invite_prob"],
+  "additionalProperties": false,
+  "properties": {
+    "participant": {"type": "string", "pattern": "^P[0-9]{2}$"},
+    "session": {"type": "string", "minLength": 1},
+    "status": {"enum": ["answered", "dismissed", "expired", "not_invited", "ended_early"]},
+    "answer": {"enum": ["none", "neck", "lower_back", "both", null]},
+    "asked_sec": {"type": ["number", "null"], "minimum": 0, "description": "Giây từ đầu phiên tới lúc thẻ thực sự hiện; null nếu chưa hiện"},
+    "reply_sec": {"type": ["number", "null"], "minimum": 0, "description": "Giây từ đầu phiên tới lúc trả lời; chỉ có khi answered"},
+    "question_version": {"const": "v1"},
+    "invite_prob": {"type": "number", "minimum": 0, "maximum": 1}
+  },
+  "allOf": [
+    {"if": {"properties": {"status": {"const": "answered"}}, "required": ["status"]},
+     "then": {"properties": {"answer": {"enum": ["none", "neck", "lower_back", "both"]}, "reply_sec": {"type": "number"}, "asked_sec": {"type": "number"}}}},
+    {"if": {"properties": {"status": {"enum": ["dismissed", "expired", "not_invited", "ended_early"]}}, "required": ["status"]},
+     "then": {"properties": {"answer": {"const": null}, "reply_sec": {"type": "null"}}}}
+  ]
+}
