@@ -19,7 +19,7 @@ import urllib.error
 import urllib.request
 import urllib.parse
 import uuid
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from payloads import Device
 
@@ -224,9 +224,10 @@ def t_history(c, a):
         return
     dev = Device(seed=11)
     now = _now()
-    t0 = now - timedelta(minutes=10)
-    events = [dev.session_start(t0)] + dev.alert_pair(t0 + timedelta(minutes=1), 30)
-    open_alert = dev.alert_pair(t0 + timedelta(minutes=5), 20, alert_type="TOO_CLOSE")[0]
+    # Mốc gần hiện tại: backend tự đóng phiên im lặng quá 3 phút, nên dữ liệu cũ hơn sẽ thành TIMEOUT
+    t0 = now - timedelta(seconds=150)
+    events = [dev.session_start(t0)] + dev.alert_pair(t0 + timedelta(seconds=10), 30)
+    open_alert = dev.alert_pair(t0 + timedelta(seconds=60), 20, alert_type="TOO_CLOSE")[0]
     metric = dev.metric(now, bad_ratio=0.25, alerts={"NECK_TRUNK": 1})
     s, b, _ = c.call("POST", "/api/v1/telemetry/batch", dev.batch(events + [open_alert], [metric]))
     if not check("history", "gửi phiên + 2 cảnh báo + 1 metrics -> 200", s == 200, (s, b)):
@@ -249,7 +250,8 @@ def t_history(c, a):
               older["endReason"] == "CORRECTED" and older["durationSec"] == 30 and older["open"] is False, older)
     s, b = _wait(c, "/api/v1/alerts/me" + rng + "&alertType=TOO_CLOSE", lambda body: len(mine(body)) == 1, 5)
     check("history", "lọc alertType=TOO_CLOSE", s == 200 and [i["alertType"] for i in mine(b)] == ["TOO_CLOSE"], b)
-    s, b = _wait(c, "/api/v1/alerts/me/sessions" + rng, lambda body: len(mine(body)) == 1, 5)
+    s, b = _wait(c, "/api/v1/alerts/me/sessions" + rng, lambda body: len(mine(body)) == 1
+                 and mine(body)[0].get("alertCount") == 2 and mine(body)[0].get("open") is True)
     sess = mine(b)
     check("history", "GET /alerts/me/sessions: phiên đang mở, alertCount = 2", len(sess) == 1
           and SESSION_KEYS <= set(sess[0]) and sess[0]["open"] is True and sess[0]["alertCount"] == 2, (s, b))
@@ -261,8 +263,12 @@ def t_history(c, a):
     s, b, _ = c.call("GET", "/api/v1/alerts/me", auth=False)
     check("history", "GET /alerts/me không JWT -> 401", s == 401, (s, b))
 
-    s, b = _wait(c, "/api/v1/stats/me/summary" + rng,
-                 lambda body: isinstance(body, dict) and (body.get("presenceMinutes") or 0) >= 1)
+    # chỉ hỏi đúng phút của metrics vừa gửi, để dữ liệu cũ của tài khoản không làm điều kiện đúng sẵn
+    ws = datetime.fromisoformat(metric["windowStart"].replace("Z", "+00:00"))
+    mrng = _q(**{"from": ws.isoformat(), "to": (ws + timedelta(seconds=60)).isoformat()})
+    s, b = _wait(c, "/api/v1/stats/me/summary" + mrng,
+                 lambda body: isinstance(body, dict) and (body.get("presenceMinutes") or 0) >= 1
+                 and (body.get("alerts") or {}).get("NECK_TRUNK", 0) >= 1)
     check("history", "GET /stats/me/summary -> {meanScore, badMinutes, presenceMinutes, alerts}",
           s == 200 and isinstance(b, dict) and STATS_KEYS <= set(b), (s, b))
     check("history", "summary đã tính metrics vừa gửi (presenceMinutes >= 1, alerts.NECK_TRUNK >= 1)",

@@ -1,5 +1,8 @@
 # Gói bàn giao API v1.5 – Desktop App → Backend
 
+> **Đã đóng băng ở v1.5 (15/10/2026).** `openapi.yaml` không cập nhật nữa. Danh mục API, quy tắc làm việc và tiến độ hiện ở
+> `DoAnTotNghiep_BE/.codex/skills/team-sync/SKILL.md`. `schemas/*.json` và các script trong thư mục này vẫn dùng như cũ.
+
 Thư mục này là **toàn bộ những gì backend cần** để làm phần nhận dữ liệu, không cần webcam hay chạy Desktop App.
 Kế hoạch chi tiết, lộ trình và các câu hỏi cần chốt nằm trong tài liệu "Kế hoạch bàn giao API".
 
