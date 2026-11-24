@@ -18,6 +18,16 @@ Cập nhật 24/11/2026. Quy tắc nghiệp vụ: `GIT_backend/DoAnTotNghiep_BE/
   Chưa có thì bản ghi nằm yên trong outbox (không thành `dead`) và gửi bù khi backend có.
 - Schema: `posture_model/schemas/survey.schema.json`.
 
+## Giới hạn đã biết
+
+- **Khung đứng:** camera trả mãi một khung cũ chỉ bị coi là mất tín hiệu sau khi khung trùng y hệt liên tục ≥ 2 giây,
+  nên mỗi lần camera treo tối đa 2 giây đầu vẫn được tính vào `coveredSec`, `presenceSec` và `postureClassSeconds`.
+  Việt chốt 24/11/2026: giữ nguyên, không bù ngược.
+- Khung chỉ lệch 1 mức xám ở một pixel vẫn là khung sống (không bị coi là đứng).
+- Cửa sổ dưới 5 giây không có cảnh báo không gửi; app bị kill đột ngột mất cửa sổ đang dở (ra dòng `unknown` khi xuất).
+- Desktop PR #41 còn gửi khảo sát theo đề xuất cũ (`POST /api/v1/research/survey`), chưa khớp API Tân đã chốt
+  (`POST /api/v1/research/me/surveys/{sessionId}`, `docs/health-insight/api-pilot.md`). Cần PR chỉnh trước khi thu thật.
+
 ## Tự thử bằng tay (không chờ 2 giờ)
 
 Biến môi trường chỉ để thử (đặt trước khi chạy app):
