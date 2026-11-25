@@ -41,7 +41,7 @@ Ví dụ (PowerShell), mock server cổng 8080, thẻ hiện sau 60 giây:
 
 ```powershell
 # cửa sổ 1
-cd GIT_KLTN\api_handover
+cd GIT_KLTN\posture_model
 python mock_server.py --require-login          # tài khoản demo@kltn.local / 123456
 
 # cửa sổ 2
