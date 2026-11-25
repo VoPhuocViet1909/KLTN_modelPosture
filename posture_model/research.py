@@ -32,7 +32,7 @@ QUESTION_VERSION = "v1"
 ANSWERS = ("none", "neck", "lower_back", "both")
 SURVEY_ID_PREFIX = "survey-"
 
-DESCRIPTION = ("Khi bật, ứng dụng gửi lên máy chủ: số liệu tư thế gộp theo 60 giây (như hiện nay) kèm mã nghiên cứu, "
+DESCRIPTION = ("Khi bật, ứng dụng gửi lên máy chủ: số liệu tư thế gộp theo 60 giây (như hiện nay), "
                "và câu trả lời của bạn cho một câu hỏi về cảm giác khó chịu ở cuối buổi ngồi dài. "
                "Ứng dụng KHÔNG gửi video hay ảnh. Bạn tắt được bất cứ lúc nào.")
 
@@ -74,6 +74,10 @@ class ResearchStore:
             session_id TEXT PRIMARY KEY, participant TEXT NOT NULL, day TEXT NOT NULL, state TEXT NOT NULL,
             day_claimed INTEGER NOT NULL DEFAULT 0, invite_prob REAL NOT NULL, started_wall REAL NOT NULL,
             asked_sec REAL, asked_wall REAL, final_status TEXT)""")
+        columns = {column[1] for column in self.db.execute("PRAGMA table_info(sessions)")}
+        for field in ("device_id", "camera_setup"):
+            if field not in columns:
+                self.db.execute(f"ALTER TABLE sessions ADD COLUMN {field} TEXT")
 
     # ---------------------------------------------------------------- cài đặt
     def get(self):
@@ -101,7 +105,7 @@ class SurveyScheduler:
     show(session_id) báo giao diện hiện thẻ; hide() ẩn thẻ."""
 
     def __init__(self, store, user_id, session_id, emit, show=None, hide=None, clock=time.time, rng=None,
-                 ask_sec=None, ignore_daily_limit=None):
+                 ask_sec=None, ignore_daily_limit=None, device_id=None, camera_setup=None, started_wall=None):
         self.store, self.user_id, self.session_id = store, str(user_id), session_id
         self.emit, self.show, self.hide = emit, show or (lambda sid: None), hide or (lambda: None)
         self.clock = clock
@@ -114,7 +118,8 @@ class SurveyScheduler:
         self.participant = None
         self.invited = False
         self.asked_wall = None
-        self.start_wall = None
+        self.start_wall = started_wall
+        self.device_id, self.camera_setup = device_id, camera_setup
         self.closed = False
 
     # ---------------------------------------------------------------- vòng đời
@@ -126,7 +131,8 @@ class SurveyScheduler:
             if not cfg["enabled"] or not valid_code(cfg["code"]):
                 return "disabled"
             self.participant = cfg["code"]
-            self.start_wall = self.clock()
+            if self.start_wall is None:
+                self.start_wall = self.clock()
             day = vn_day(self.start_wall)
             prob = env_float("KLTN_RESEARCH_INVITE_PROB", cfg["invite_prob"])
             db = self.store.db
@@ -136,9 +142,10 @@ class SurveyScheduler:
             taken = db.execute("SELECT 1 FROM sessions WHERE day=? AND participant=? AND day_claimed=1",
                                (day, self.participant)).fetchone() is not None
             chosen = (not taken or self.ignore_daily_limit) and self.rng() < prob
-            db.execute("INSERT INTO sessions(session_id, participant, day, state, day_claimed, invite_prob, started_wall) "
-                       "VALUES (?,?,?,?,?,?,?)", (self.session_id, self.participant, day,
-                                                  "invited" if chosen else "not_invited", int(chosen), prob, self.start_wall))
+            db.execute("INSERT INTO sessions(session_id, participant, day, state, day_claimed, invite_prob, started_wall, device_id, camera_setup) "
+                       "VALUES (?,?,?,?,?,?,?,?,?)", (self.session_id, self.participant, day,
+                                                  "invited" if chosen else "not_invited", int(chosen), prob, self.start_wall,
+                                                  self.device_id, self.camera_setup))
             if chosen:
                 self.invited = self.active = True
                 return "invited"
@@ -215,12 +222,16 @@ class SurveyScheduler:
         db = self.store.db
         if prob is None:
             prob = db.execute("SELECT invite_prob FROM sessions WHERE session_id=?", (sid,)).fetchone()[0]
-        row = db.execute("SELECT final_status, participant FROM sessions WHERE session_id=?", (sid,)).fetchone()
+        row = db.execute("SELECT final_status, participant, device_id, camera_setup FROM sessions WHERE session_id=?", (sid,)).fetchone()
         if row is None or row[0] is not None:
             return                                        # đã chốt: gửi lại/bấm lại không tạo bản ghi thứ hai
-        payload = {"participant": participant or self.participant, "session": sid, "status": status, "answer": answer,
+        payload = {"participant": participant or row[1], "session": sid, "status": status, "answer": answer,
                    "asked_sec": asked_sec, "reply_sec": reply_sec, "question_version": QUESTION_VERSION,
                    "invite_prob": prob, "userId": self.user_id}
+        if row[2] is not None:
+            payload["deviceId"] = row[2]
+        if row[3] is not None:
+            payload["cameraSetup"] = row[3]
         # Vào outbox TRƯỚC rồi mới đánh dấu đã chốt: sập giữa chừng thì lần sau ghi lại cùng khoá (INSERT OR IGNORE).
         self.emit(SURVEY_ID_PREFIX + f"{payload['participant']}-{sid}", payload)
         db.execute("UPDATE sessions SET state=?, final_status=? WHERE session_id=?",

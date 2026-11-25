@@ -416,7 +416,9 @@ class PostureEngine:
             self.research_store = ResearchStore(o.research_db)
             sch = SurveyScheduler(self.research_store, self.auth.user_id, self.elog.session_id,
                                   emit=lambda i, p: self.sender.enqueue_survey(i, p),
-                                  show=self.listener.on_survey, hide=self.listener.on_survey_hide)
+                                  show=self.listener.on_survey, hide=self.listener.on_survey_hide,
+                                  device_id=self.elog.device_id, started_wall=self.elog.wall_t0,
+                                  camera_setup="side90+laptop" if self.cap_f is not None else "side90")
             return sch if sch.begin() == "invited" else None
         except Exception as e:
             print("Chế độ nghiên cứu không chạy được, bỏ qua:", e)

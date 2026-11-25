@@ -94,12 +94,20 @@ def test_disabled_makes_no_records_and_no_card():
     assert r.out == {} and r.shown == []
 
 
+_qt_application = None
+
+
+def ensure_qt_application():
+    from PySide6.QtWidgets import QApplication
+    global _qt_application
+    _qt_application = QApplication.instance() or QApplication([])
+
+
 def test_setup_dialog_saves_and_validates():
     from PySide6.QtCore import QSettings
-    from PySide6.QtWidgets import QApplication
     import iot_config
     import ui.setup_view as setup
-    app = QApplication.instance() or QApplication([])
+    ensure_qt_application()
     tmp = tempfile.mkdtemp()
     setup.preferences = lambda: QSettings(os.path.join(tmp, "s.ini"), QSettings.IniFormat)
     iot_config.PATH = os.path.join(tmp, "iot.json")
@@ -373,9 +381,9 @@ def wait_until(cond, timeout=15):
     return False
 
 
-def post(base, tok, body):
+def post(base, tok, session, body):
     import json
-    req = urllib.request.Request(base + "/api/v1/research/survey", data=json.dumps(body).encode(),
+    req = urllib.request.Request(base + "/api/v1/research/me/surveys/" + session, data=json.dumps(body).encode(),
                                  headers={"Content-Type": "application/json", "Authorization": "Bearer " + tok}, method="POST")
     with urllib.request.urlopen(req, timeout=5) as r:
         return r.status, json.loads(r.read())
@@ -410,12 +418,32 @@ def test_offline_then_online_single_record_no_dead():
     assert len(store.surveys) == 1
     rec = next(iter(store.surveys.values()))["record"]
     assert rec["status"] == "answered" and rec["answer"] == "both" and "userId" not in rec
+    assert rec["cameraSetup"] == "unknown" and rec["deviceId"] == "dev-1"
+    assert type(rec["askedSec"]) is int and "participant" not in rec
     # gửi lại cùng khoá: 200 và cùng nội dung, không thêm dòng
-    status, body = post(base, "tok", rec)
+    status, body = post(base, "tok", "sess-net", rec)
     assert status == 200 and body == rec and len(store.surveys) == 1
     snd.stop()
     srv.shutdown()
     srv.server_close()
+
+
+def test_recovered_survey_keeps_its_original_device_and_camera():
+    store = make_store(prob=1)
+    clock = Clock()
+    first = Rig(store, clock, session="s_old_device", device_id="original", camera_setup="side90+laptop")
+    assert first.sch.begin() == "invited"
+    clock.advance(ASK_SEC + 10)
+    first.sch.tick()
+    store.close()
+
+    restored = ResearchStore(store.path)
+    next_session = Rig(restored, clock, session="s_new_device", device_id="new", camera_setup="side90")
+    next_session.sch.begin()
+    old = next_session.out["survey-P04-s_old_device"]
+    assert (old["status"], old["asked_sec"], old["reply_sec"]) == ("ended_early", 7210, None)
+    assert (old["deviceId"], old["cameraSetup"]) == ("original", "side90+laptop")
+    restored.close()
 
 
 def test_mock_server_idempotent_and_private():
@@ -424,13 +452,13 @@ def test_mock_server_idempotent_and_private():
     srv, store = serve(port, token="tok", folder=d, quiet=True)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     base = f"http://127.0.0.1:{port}"
-    rec = dict(participant="P09", session="s9", status="dismissed", answer=None, asked_sec=7200.0, reply_sec=None,
-               question_version="v1", invite_prob=0.5)
-    s1, b1 = post(base, "tok", rec)
-    s2, b2 = post(base, "tok", rec)
-    assert (s1, s2) == (201, 200) and b1 == b2 == rec and len(store.surveys) == 1
+    rec = dict(deviceId="test", cameraSetup="side90", status="dismissed", answer=None, askedSec=7300, replySec=None,
+               questionVersion="v1", inviteProb=0.5)
+    s1, b1 = post(base, "tok", "s9", rec)
+    s2, b2 = post(base, "tok", "s9", rec)
+    assert (s1, s2) == (200, 200) and b1 == b2 == rec and len(store.surveys) == 1
     try:
-        post(base, "tok", dict(rec, status="answered"))                            # sai schema (answered mà answer = null)
+        post(base, "tok", "s9", dict(rec, status="answered"))                            # sai schema (answered mà answer = null)
         raise AssertionError("mock nhận bản ghi sai schema")
     except urllib.error.HTTPError as e:
         assert e.code == 400
@@ -446,7 +474,7 @@ def test_engine_hooks_invite_and_answer():
     s.save(True, "P05", 1.0)
     s.close()
     sent, shown = [], []
-    fake = SimpleNamespace(auth=SimpleNamespace(user_id="u1"), elog=SimpleNamespace(session_id="eng-1"),
+    fake = SimpleNamespace(auth=SimpleNamespace(user_id="u1"), elog=SimpleNamespace(session_id="eng-1", device_id="dev-1", wall_t0=time.time()), cap_f=None,
                            sender=SimpleNamespace(enqueue_survey=lambda i, p: sent.append((i, p))),
                            listener=SimpleNamespace(on_survey=shown.append, on_survey_hide=lambda: None))
     fake._make_survey = lambda o: PostureEngine._make_survey(fake, o)
@@ -468,9 +496,8 @@ def test_engine_hooks_invite_and_answer():
 
 
 def test_survey_card_buttons_and_close():
-    from PySide6.QtWidgets import QApplication
     from ui.survey_card import SurveyCard
-    app = QApplication.instance() or QApplication([])
+    ensure_qt_application()
     card = SurveyCard()
     got = []
     card.answered.connect(got.append)

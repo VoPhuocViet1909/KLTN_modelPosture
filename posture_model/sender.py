@@ -20,6 +20,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+import urllib.parse
 from datetime import datetime, timezone
 
 from schema import validate
@@ -27,7 +28,7 @@ from api_session import AuthError, NoRedirect
 
 URGENT = {"ALERT_STARTED", "ALERT_REPEATED", "ALERT_RESOLVED", "USER_AWAY", "USER_BACK"}
 LOCAL_ONLY_KEYS = ("notify",)          # khoá chỉ dùng trong app, không gửi lên server
-LOCAL_ONLY_SURVEY_KEYS = ("userId",)   # chỉ để outbox kiểm chủ sở hữu; server biết người dùng qua token
+LOCAL_SURVEY_METADATA = {"userId", "deviceId", "cameraSetup"}
 LOCAL_ONLY_EVENTS = {"CALIBRATION_FAILED"}   # sự kiện chỉ ghi ở máy (events.jsonl), không thuộc 10 loại của ingestion
 
 
@@ -74,7 +75,13 @@ class Sender(threading.Thread):
         self.q.put(("metric", m["metricId"], m, False))
 
     def enqueue_survey(self, item_id, payload):
-        self.q.put(("survey", item_id, payload, True))
+        if self.check_schema:
+            body = {key: value for key, value in payload.items() if key not in LOCAL_SURVEY_METADATA}
+            errors = validate("survey", body)
+            if errors:
+                raise ValueError("Invalid local survey: " + "; ".join(errors[:3]))
+        # Persist before the scheduler marks the session final.
+        self.outbox.put("survey", item_id, payload, True)
         self._wake.set()
 
     def configure(self, base_url=None, token=None, interval=None, batch_max=None):
@@ -119,9 +126,7 @@ class Sender(threading.Thread):
                 return
             self.outbox.put(kind, item_id, payload, urgent)
             if self.check_schema:
-                body = ({k: v for k, v in payload.items() if k not in LOCAL_ONLY_SURVEY_KEYS}
-                        if kind == "survey" else payload)
-                errs = validate({"event": "event", "survey": "survey"}.get(kind, "metrics"), body)
+                errs = validate("event" if kind == "event" else "metrics", payload)
                 if errs:
                     print(f"[sender] {kind} {item_id} sai schema, không gửi:", errs[:3])
                     self.outbox.mark_dead([(item_id, "; ".join(errs[:5]))])
@@ -170,7 +175,7 @@ class Sender(threading.Thread):
         return all(self._deliver_survey(it) for it in surveys) if surveys else True
 
     def _deliver_survey(self, item):
-        """POST /api/v1/research/survey, idempotent theo (participant, session). 200/201 = đã nhận; 4xx (trừ 408/429/401/403)
+        """POST khảo sát chính chủ theo phiên. 200 = đã nhận; 4xx (trừ 408/429/401/403)
         = từ chối hẳn (dead); mất mạng/5xx/401/403 = giữ lại thử sau."""
         item_id, _, payload = item
         ids = [item_id]
@@ -184,17 +189,29 @@ class Sender(threading.Thread):
                 if payload.get("userId") != self.auth.user_id:
                     self._fail(ids, "Outbox belongs to another user", offline=True, code="SOURCE_MISMATCH")
                     return False
-            body = {k: v for k, v in payload.items() if k not in LOCAL_ONLY_SURVEY_KEYS}
-            headers = {"Content-Type": "application/json", "X-Device-Id": self.device_id}
+            session_id = payload["session"]
+            device = payload.get("deviceId", self.device_id)
+            asked, reply = payload["asked_sec"], payload["reply_sec"]
+            body = {
+                "deviceId": device,
+                "cameraSetup": payload.get("cameraSetup", "unknown"),
+                "status": payload["status"],
+                "answer": payload["answer"],
+                "askedSec": int(asked) if asked is not None else None,
+                "replySec": int(reply) if reply is not None else None,
+                "questionVersion": payload["question_version"],
+                "inviteProb": payload["invite_prob"],
+            }
+            headers = {"Content-Type": "application/json", "X-Device-Id": device}
             if self.token and not self.auth:
                 headers["Authorization"] = f"Bearer {self.token}"
-            req = urllib.request.Request(self.base_url + "/api/v1/research/survey",
+            req = urllib.request.Request(self.base_url + "/api/v1/research/me/surveys/" + urllib.parse.quote(session_id, safe=""),
                                          data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
                                          headers=headers, method="POST")
             with (self.auth.open(req, timeout=self.timeout) if self.auth else
                   self._opener.open(req, timeout=self.timeout)) as r:
                 r.read()
-                if r.status not in (200, 201):
+                if r.status != 200:
                     raise ValueError("Unexpected status")
         except urllib.error.HTTPError as e:
             retry = e.code >= 500 or e.code in (401, 403, 404, 408, 429)   # 404: server chưa có API khảo sát, giữ lại chờ
