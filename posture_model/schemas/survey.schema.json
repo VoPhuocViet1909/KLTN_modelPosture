@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://kltn.local/schemas/survey.schema.json",
-  "title": "Khảo sát khó chịu phút 120, 1 bản / phiên (nghiên cứu)",
+  "title": "Bản ghi khảo sát cục bộ trước khi Sender chuyển sang hợp đồng HTTP",
   "version": "1.0",
   "description": "Khoá chống trùng: (participant, session). Gửi lại cùng khoá không tạo dòng mới. Hỏi ở 7200 giây kể từ đầu phiên (đồng hồ thật, không trừ lúc rời ghế; nếu đang rời ghế thì chờ có người lại), hạn trả lời 10 phút kể từ lúc thẻ hiện.",
   "type": "object",

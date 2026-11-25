@@ -25,9 +25,7 @@ Endpoint:
   GET  /api/v1/stats/me/timeseries    -> [{start, meanScore, badMinutes, presenceMinutes, alerts}] theo giờ / ngày
   GET  /api/v1/stats/me/heatmap       -> 168 ô {weekday, hour, meanScore} (giờ Việt Nam)
   GET  /api/v1/stats/org/summary      -> như summary, cho cả tổ chức (ORG_ADMIN)
-  POST /api/v1/research/survey        -> (ĐỀ XUẤT, chờ Tân) lưu câu trả lời khảo sát phút 120, idempotent theo
-                                         (participant, session): lần đầu 201, gửi lại cùng khoá 200 cùng nội dung
-  GET  /api/v1/research/survey/me     -> (ĐỀ XUẤT, chờ Tân) các câu trả lời của chính người gọi {items}
+  POST/GET /api/v1/research/me/surveys/{sessionId} -> ghi/đọc khảo sát chính chủ theo phiên
   GET  /api/v1/stats                  -> (chỉ mock) đếm số sự kiện / metrics đã nhận
 Lịch sử và thống kê tính lại từ dữ liệu đã nhận (history.py), cùng quy tắc với backend. Lỗi của các endpoint này
 dùng body chuẩn {code, message, traceId, errors}; các endpoint cũ vẫn trả {error}.
@@ -41,6 +39,7 @@ import collections
 import json
 import os
 import random
+import re
 import secrets
 import threading
 import time
@@ -74,6 +73,28 @@ def make_jwt(sub, device_id, ttl=ACCESS_TTL):
                      "mock-signature"])
 
 
+def validate_survey_body(body):
+    fields = {"deviceId", "cameraSetup", "status", "answer", "askedSec", "replySec", "questionVersion", "inviteProb"}
+    if not isinstance(body, dict) or body.keys() != fields:
+        return ["invalid survey fields"]
+    device, camera = body["deviceId"], body["cameraSetup"]
+    if not isinstance(device, str) or not re.fullmatch(r"[A-Za-z0-9_.-]{1,128}", device):
+        return ["invalid deviceId"]
+    if camera not in ("side90", "side90+laptop", "unknown"):
+        return ["invalid cameraSetup"]
+    status, asked, reply = body["status"], body["askedSec"], body["replySec"]
+    if asked is None and status in ("answered", "dismissed", "expired"):
+        return ["missing askedSec"]
+    if asked is not None and (type(asked) is not int or asked < 7200 or status == "not_invited"
+                              or type(body["inviteProb"]) not in (float, int) or body["inviteProb"] <= 0):
+        return ["invalid askedSec or inviteProb"]
+    if status == "answered" and (type(reply) is not int or not asked <= reply <= asked + 600):
+        return ["invalid replySec"]
+    return validate("survey", {"participant": "P00", "session": "mock", "status": status,
+                               "answer": body["answer"], "asked_sec": asked, "reply_sec": reply,
+                               "question_version": body["questionVersion"], "invite_prob": body["inviteProb"]})
+
+
 class Store:
     def __init__(self, folder):
         os.makedirs(folder, exist_ok=True)
@@ -85,13 +106,14 @@ class Store:
         self.tokens = {}        # accessToken -> (userId, exp)
         self.refresh = {}       # refreshToken -> userId
         self.configs = {}       # userId -> dict
-        self.surveys = {}       # (participant, session) -> {owner, record}
+        self.surveys = {}       # (owner, session) -> {owner, session, record}
         p = os.path.join(folder, "survey.jsonl")
         if os.path.exists(p):
             for line in open(p, encoding="utf-8"):
                 try:
                     d = json.loads(line)
-                    self.surveys[(d["record"]["participant"], d["record"]["session"])] = d
+                    if "session" in d:
+                        self.surveys[(d["owner"], d["session"])] = d
                 except (ValueError, KeyError):
                     continue
         self.recent = collections.deque(maxlen=200)   # mục mới nhận, cho trang xem trực tiếp
@@ -124,14 +146,14 @@ class Store:
             self.recent.append({"kind": kind, "receivedAt": time.time(), "item": item})
         return True
 
-    def add_survey(self, owner, record):
+    def add_survey(self, owner, session, record):
         """-> (created, stored | None). Trùng khoá thì trả bản đã lưu, không ghi thêm; khác chủ thì (False, None)."""
-        key = (record["participant"], record["session"])
+        key = (owner, session)
         with self.lock:
             old = self.surveys.get(key)
             if old:
-                return (False, old["record"]) if old["owner"] == owner else (False, None)
-            row = {"owner": owner, "record": record, "receivedAt": time.time()}
+                return (False, old["record"]) if old["record"] == record else (False, None)
+            row = {"owner": owner, "session": session, "record": record, "receivedAt": time.time()}
             with open(os.path.join(self.folder, "survey.jsonl"), "a", encoding="utf-8") as f:
                 f.write(json.dumps(row, ensure_ascii=False) + "\n")
             self.surveys[key] = row
@@ -264,12 +286,16 @@ def make_handler(store, static_token, require_auth, fail_rate, quiet):
                                         "items": list(store.recent)[-80:][::-1]})
             if self.path == "/api/v1/stats":
                 return self._json(200, {"events": dict(store.by_type), "metrics": store.n_metrics})
-            if self.path == "/api/v1/research/survey/me":
+            survey = re.fullmatch(r"/api/v1/research/me/surveys/([A-Za-z0-9_-]{1,48})", self.path)
+            if survey:
                 uid, err = self._user()
                 if err or uid is None:
                     return self._error(401, "AUTH_TOKEN_MISSING", "Authentication required.")
                 with store.lock:
-                    return self._json(200, {"items": [r["record"] for r in store.surveys.values() if r["owner"] == uid]})
+                    row = store.surveys.get((uid, survey[1]))
+                    if row is None:
+                        return self._error(404, "SURVEY_NOT_FOUND", "No survey for this session.")
+                    return self._json(200, row["record"])
             if self.path == "/api/v1/config/me":
                 uid, err = self._user()
                 if err or uid is None:
@@ -313,20 +339,21 @@ def make_handler(store, static_token, require_auth, fail_rate, quiet):
                     return self._json(401, {"error": "refresh token không hợp lệ"})
                 access, refresh = store.issue(*rec)
                 return self._json(200, {"accessToken": access, "refreshToken": refresh, "expiresIn": ACCESS_TTL})
-            if self.path == "/api/v1/research/survey":
+            survey = re.fullmatch(r"/api/v1/research/me/surveys/([A-Za-z0-9_-]{1,48})", self.path)
+            if survey:
                 uid, err = self._user()
                 if err or uid is None:
                     return self._error(401, "AUTH_TOKEN_MISSING", "Authentication required.")
                 if fail_rate and random.random() < fail_rate:
                     return self._json(503, {"error": "simulated outage"})
-                errs = validate("survey", body) if isinstance(body, dict) else ["body phải là object"]
+                errs = validate_survey_body(body)
                 if errs:
                     return self._error(400, "VALIDATION_FAILED", "Invalid survey.",
                                        [{"field": "body", "message": e} for e in errs[:5]])
-                created, record = store.add_survey(uid, body)
+                _, record = store.add_survey(uid, survey[1], body)
                 if record is None:
-                    return self._error(409, "SURVEY_OWNED_BY_OTHER", "Survey belongs to another user.")
-                return self._json(201 if created else 200, record)
+                    return self._error(409, "SURVEY_CONFLICT", "A different survey is already recorded.")
+                return self._json(200, record)
             if self.path != "/api/v1/telemetry/batch":
                 return self._json(404, {"error": "not found"})
 

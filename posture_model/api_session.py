@@ -201,7 +201,11 @@ class ApiSession:
         personal_goals = (parsed.scheme, parsed.netloc) == (base.scheme, base.netloc) and parsed.path in ('/api/v1/config/me/goals', '/api/v1/alerts/me/breaks', '/api/v1/alerts/me/feedback') and request.get_method() == 'GET'
         personal_workspace = ((parsed.scheme, parsed.netloc) == (base.scheme, base.netloc)
                               and self._workspace_request(parsed, request.get_method()))
-        if not (personal_command or personal_goals or personal_workspace) and (request.full_url, request.get_method()) not in (
+        personal_survey = ((parsed.scheme, parsed.netloc) == (base.scheme, base.netloc)
+                           and not parsed.query and not parsed.fragment
+                           and request.get_method() in ("GET", "POST")
+                           and re.fullmatch(r"/api/v1/research/me/surveys/[A-Za-z0-9_-]{1,48}", parsed.path))
+        if not (personal_command or personal_goals or personal_workspace or personal_survey) and (request.full_url, request.get_method()) not in (
                 (self.base_url + "/api/v1/telemetry/batch", "POST"),
                 (self.base_url + "/api/v1/auth/media-token", "POST"),
                 (self.base_url + "/api/v1/auth/media-share/stop", "POST"),

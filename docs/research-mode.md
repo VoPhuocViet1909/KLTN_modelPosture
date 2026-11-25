@@ -14,7 +14,7 @@ Cập nhật 24/11/2026. Quy tắc nghiệp vụ: `GIT_backend/DoAnTotNghiep_BE/
 - Đầu mỗi phiên quyết định mời bằng xác suất `invite_prob` (mặc định 0,5). Tối đa 1 lần mời/người/ngày (giờ Việt Nam).
 - Tới 7200 giây kể từ đầu phiên (đồng hồ thật, không trừ lúc rời ghế) hiện thẻ không chặn. Đang rời ghế thì chờ có người lại.
   Hạn 10 phút từ lúc thẻ hiện.
-- Bản ghi (`survey` trong outbox) gửi `POST /api/v1/research/survey`. API này là đề xuất, chờ Tân (team-sync mục 4.12).
+- Bản ghi (`survey` trong outbox) gửi `POST /api/v1/research/me/surveys/{sessionId}` theo hợp đồng mục 4.12. Mã nghiên cứu vẫn giữ cục bộ. Giây lẻ ở outbox được làm tròn xuống khi gửi.
   Chưa có thì bản ghi nằm yên trong outbox (không thành `dead`) và gửi bù khi backend có.
 - Schema: `posture_model/schemas/survey.schema.json`.
 
@@ -25,8 +25,7 @@ Cập nhật 24/11/2026. Quy tắc nghiệp vụ: `GIT_backend/DoAnTotNghiep_BE/
   Việt chốt 24/11/2026: giữ nguyên, không bù ngược.
 - Khung chỉ lệch 1 mức xám ở một pixel vẫn là khung sống (không bị coi là đứng).
 - Cửa sổ dưới 5 giây không có cảnh báo không gửi; app bị kill đột ngột mất cửa sổ đang dở (ra dòng `unknown` khi xuất).
-- Desktop PR #41 còn gửi khảo sát theo đề xuất cũ (`POST /api/v1/research/survey`), chưa khớp API Tân đã chốt
-  (`POST /api/v1/research/me/surveys/{sessionId}`, `docs/health-insight/api-pilot.md`). Cần PR chỉnh trước khi thu thật.
+- Backend nhận giờ hiện thẻ thực tế. Nếu người dùng quay lại muộn, thời hạn vẫn là 10 phút từ lúc thẻ hiện. Bản ghi cũ thiếu cấu hình camera được gửi với `cameraSetup=unknown`.
 
 ## Tự thử bằng tay (không chờ 2 giờ)
 
@@ -53,10 +52,9 @@ $env:KLTN_RESEARCH_IGNORE_DAILY_LIMIT = "1"
 python app.py --side 1 --front 0               # hoặc --side-video hong.mp4 --front -1
 ```
 
-Đăng nhập, mở Thiết lập, bật "Tham gia nghiên cứu", nhập `P04`, Lưu (app khởi động lại phiên). Sau khoảng 1 phút
-(không tính lúc đang hiệu chỉnh hay rời ghế) thẻ hiện. Bấm một lựa chọn rồi xem `api_handover/mock_data/survey.jsonl`
-hoặc `GET http://127.0.0.1:8080/api/v1/research/survey/me` (cần token). Muốn thử hết hạn: không bấm, chờ 10 phút
-(hoặc sửa `ANSWER_WINDOW_SEC` trong `research.py` khi thử).
+Đăng nhập, mở Thiết lập, bật “Tham gia nghiên cứu”, nhập `P04` và lưu. Desktop bắt đầu phiên mới.
+Biến môi trường ở trên rút ngắn thời gian để xem thẻ trên UI. API khảo sát chỉ chấp nhận các mốc hợp lệ
+từ giây 7200. Dùng đồng hồ giả trong bài kiểm tự động hoặc tham gia phiên thật để kiểm cả gửi và đọc lại.
 
 ## Test tự động
 
