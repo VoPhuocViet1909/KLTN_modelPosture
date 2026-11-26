@@ -310,7 +310,83 @@ def test_end_to_end_small(tmp_path):
     for f in ("predictions.csv", "metrics.json", "metrics.md", "pr_curve.png", "calibration.png", "run_meta.json"):
         assert (tmp_path / "out" / f).exists()
     head = open(tmp_path / "out" / "predictions.csv", encoding="utf-8").readline().strip()
-    assert head == "participant,session_id,minute_idx,y,p_a,p_b,p_c,p_d"
+    assert head == "participant,session_id,minute_idx,y,p_a,p_b,p_c,p_d,p_e"
     assert meta["protocol_override"] == {"bootstrap_n": 30} and "data_sha256" in meta and "protocol_sha256" in meta
     for fold in res["folds"]:
         assert fold["test"] not in fold["fit"] + fold["val"]
+
+
+# ---------------------------------------------------------------- protocol v2: LOSO lồng + mốc (e)
+def test_protocol_v2_keys():
+    assert P["version"] == 2 and "sửa trước khi có dữ liệu thật" in P["changelog"]
+    ts = P["threshold_selection"]
+    assert sorted(ts["nested_loso"] + ts["validation_split"]) == ["a", "b", "c", "d", "e"] and ts["validation_split"] == ["d"]
+
+
+class _Rec:
+    """Mô hình giả ghi lại người đã dùng để fit; dự đoán = hằng số theo số người fit."""
+    calls = []
+
+    def __init__(self, P):
+        pass
+
+    def fit(self, train, val=None):
+        self.people = set(train["participant"])
+        _Rec.calls.append(self.people)
+        return self
+
+    def predict(self, ds):
+        return np.full(len(ds["y"]), 0.1 * len(self.people))
+
+
+def _tiny_ds(people=("A", "B", "C", "D")):
+    n = 6
+    ds = dict(participant=np.array([p for p in people for _ in range(n)], dtype=object),
+              session_id=np.array([f"{p}1" for p in people for _ in range(n)], dtype=object),
+              minute=np.tile(np.arange(n), len(people)), y=np.tile([0, 1], n * len(people) // 2),
+              F=np.zeros((n * len(people), len(FE.FLAT_NAMES))), S=np.zeros((n * len(people), 10, len(FE.SEQ_NAMES))),
+              state=np.zeros(n * len(people), int), bad_rate=np.zeros(n * len(people)), lead=-np.ones(n * len(people), int),
+              session_states={}, minute_rates={}, hours={p: 1.0 for p in people}, session_hours={})
+    return ds
+
+
+def test_nested_oof_never_fits_on_the_held_out_person(monkeypatch):
+    monkeypatch.setitem(MD.MODELS, "a", _Rec)
+    _Rec.calls = []
+    ds = _tiny_ds()
+    train_people = ["B", "C", "D"]
+    train = DS.subset(ds, train_people)
+    oof = EV.oof_predictions("a", train, train_people, P)
+    assert len(_Rec.calls) == 3 and all(len(c) == 2 for c in _Rec.calls)             # mỗi lần fit trên 2/3 người
+    held = [set(train_people) - c for c in _Rec.calls]
+    assert sorted(h.pop() for h in held) == train_people                              # mỗi người bị giữ lại đúng một lần
+    assert np.allclose(oof, 0.2) and not np.isnan(oof).any()                          # mọi dự đoán đến từ mô hình KHÔNG thấy người đó
+
+
+def test_run_loso_nested_refits_on_full_train_fold_and_gru_uses_val(monkeypatch):
+    for m in "abce":
+        monkeypatch.setitem(MD.MODELS, m, _Rec)
+    _Rec.calls = []
+    ds = _tiny_ds()
+    P2 = copy.deepcopy(P)
+    P2["threshold_selection"] = dict(P["threshold_selection"], nested_loso=["a"], validation_split=["b", "c", "e"])
+    _, _, folds = EV.run_loso(ds, P2, model_names=("a", "b"), log=lambda *_: None)
+    assert all(f["threshold_method"] == {"a": "nested_loso", "b": "validation_split"} for f in folds)
+    full = [c for c in _Rec.calls if len(c) == 3]                                    # lần fit lại 'a' trên toàn bộ train fold (3/4 người)
+    assert len(full) == 4 and all(len(f["fit"]) < 3 for f in folds)                  # mô hình validation_split chỉ fit trên phần fit
+    for f, c in zip(folds, full):
+        assert f["test"] not in c and f["n_train"] == 18
+
+
+def test_model_e_uses_only_sitting_time():
+    e = MD.LogisticE(P)
+    assert e.cols == [FE.FLAT_NAMES.index("sitting_min")]
+    r = np.random.default_rng(0)
+    F = r.normal(size=(300, len(FE.FLAT_NAMES)))
+    y = (F[:, e.cols[0]] + 0.5 * r.normal(size=300) > 0).astype(int)
+    ds = dict(F=F, y=y)
+    p1 = e.fit(ds).predict(ds)
+    F2 = F.copy()
+    F2[:, [i for i in range(F.shape[1]) if i != e.cols[0]]] = 99.0                     # đổi mọi đặc trưng khác: dự đoán không đổi
+    assert np.allclose(p1, e.predict(dict(F=F2, y=y)))
+    assert p1[F[:, e.cols[0]] > 1].mean() > p1[F[:, e.cols[0]] < -1].mean()

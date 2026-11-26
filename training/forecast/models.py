@@ -4,6 +4,7 @@
 (b) Markov bậc 1 theo trạng thái phút, xác suất >= bad_fraction BAD trong H phút bằng liệt kê mọi đường đi
     (mỗi trạng thái dùng tỷ lệ BAD trung bình của train; trạng thái X = phút không phân loại đủ, không tính vào mẫu số).
 (c) logistic regression L2 trên đặc trưng phẳng C2 (chuẩn hóa fit trên train).
+(e) logistic L2 chỉ trên thời gian ngồi liên tục (protocol baseline_e), tách phần đóng góp của riêng đặc trưng này.
 (d) GRU nhỏ (PyTorch CPU) trên chuỗi history_min phút, early stopping theo validation (tách theo người).
 Tham số đều từ protocol.json. Seed cố định.
 """
@@ -77,10 +78,14 @@ class MarkovB:
 
 class LogisticC:
     name = "c"
+    cols = None                                   # None = mọi đặc trưng phẳng
 
     def __init__(self, P):
         self.cfg = P["logistic"]
         self.seed = P["seed"]
+
+    def _x(self, ds):
+        return ds["F"] if self.cols is None else ds["F"][:, self.cols]
 
     def fit(self, train, val=None):
         from sklearn.linear_model import LogisticRegression
@@ -88,15 +93,25 @@ class LogisticC:
         self.rate = float(train["y"].mean())
         self.const = len(np.unique(train["y"])) < 2
         if not self.const:
-            self.sc = StandardScaler().fit(train["F"])
+            self.sc = StandardScaler().fit(self._x(train))
             self.m = LogisticRegression(C=self.cfg["C"], max_iter=self.cfg["max_iter"], random_state=self.seed).fit(
-                self.sc.transform(train["F"]), train["y"])
+                self.sc.transform(self._x(train)), train["y"])
         return self
 
     def predict(self, ds):
         if self.const:
             return _const(ds, self.rate)
-        return self.m.predict_proba(self.sc.transform(ds["F"]))[:, 1]
+        return self.m.predict_proba(self.sc.transform(self._x(ds)))[:, 1]
+
+
+class LogisticE(LogisticC):
+    name = "e"
+
+    def __init__(self, P):
+        import features as FE
+        self.cfg = dict(P["logistic"], C=P["baseline_e"]["C"])
+        self.seed = P["seed"]
+        self.cols = [FE.FLAT_NAMES.index(n) for n in P["baseline_e"]["features"]]
 
 
 class GruD:
@@ -169,4 +184,4 @@ class GruD:
             return torch.sigmoid(self.net(torch.tensor(self._norm(ds["S"])))).numpy().astype(float)
 
 
-MODELS = {"a": BaselineA, "b": MarkovB, "c": LogisticC, "d": GruD}
+MODELS = {"a": BaselineA, "b": MarkovB, "c": LogisticC, "d": GruD, "e": LogisticE}
