@@ -16,6 +16,7 @@ API (giai đoạn 3 làm bằng Spring Boot, mock_server.py làm giả để th�
 """
 import json
 import queue
+import sqlite3
 import threading
 import time
 import urllib.error
@@ -60,6 +61,9 @@ class Sender(threading.Thread):
         self.last_attempt = self.last_attempt_ms = self.last_failure_code = None
         self._last_probe = 0.0
         self.probe_sec = 15.0           # đang mất mạng: bao lâu hỏi /health một lần
+        self._held = None               # mục đã lấy khỏi hàng đợi nhưng chưa ghi được vào SQLite
+        self.storage_error = None       # lỗi ghi Outbox gần nhất (None = đang ghi được)
+        self.storage_retry_sec = 2.0    # đang lỗi ghi: bao lâu thử ghi lại một lần
 
     # ------------------------------------------------------------------ gọi từ vòng lặp camera
     def enqueue_event(self, ev):
@@ -94,7 +98,12 @@ class Sender(threading.Thread):
         self._wake.set()
 
     def status_text(self):
-        st = self.outbox.stats()
+        try:
+            st = self.outbox.stats()
+        except sqlite3.Error:
+            st = {"pending": "?"}
+        if self.storage_error:
+            return f"LOI GHI OUTBOX ({self.storage_error}), {st['pending']} cho gui"
         if not self.base_url:
             return f"offline mode, {st['pending']} cho gui"
         state = {True: "online", False: "MAT KET NOI", None: "..."}[self.online]
@@ -103,15 +112,36 @@ class Sender(threading.Thread):
     # ------------------------------------------------------------------ thread
     def run(self):
         while not self._halt.is_set():
-            self._wake.wait(self.interval)
+            self._wake.wait(self.storage_retry_sec if self.storage_error else self.interval)
             self._wake.clear()
+            self._cycle()
+        self._cycle(final=True)
+
+    def _cycle(self, final=False):
+        """Một vòng ghi + gửi. Lỗi ghi SQLite (đầy đĩa, tệp hỏng, mất quyền) không được làm chết thread:
+        ghi nhận lỗi để giao diện/chẩn đoán báo đúng, giữ mục chưa ghi và thử lại ở vòng sau."""
+        try:
             self._drain()
-            if self.base_url and not self._halt.is_set():
-                self._maybe_probe()
-                self._flush()
-        self._drain()
-        if self.base_url:
-            self._flush(final=True)
+            if self.base_url and (final or not self._halt.is_set()):
+                if not final:
+                    self._maybe_probe()
+                self._flush(final=final)
+        except (sqlite3.Error, OSError) as e:
+            self._storage_failed(e)
+        except Exception as e:                                  # lỗi lạ: báo lỗi, không để thread chết
+            self._storage_failed(e)
+        else:
+            if self.storage_error:
+                print("[sender] ghi Outbox được trở lại")
+            self.storage_error = None
+
+    def _storage_failed(self, e):
+        msg = f"{type(e).__name__}: {e}"[:120]
+        if self.storage_error is None:
+            print("[sender] không ghi được Outbox, dữ liệu giữ trong RAM và thử lại:", msg)
+        self.storage_error = msg
+        with self._diagnostic_lock:
+            self.last_error = "Outbox write failed: " + msg
 
     def stop(self, timeout=5.0):
         self._halt.set()
@@ -120,11 +150,22 @@ class Sender(threading.Thread):
 
     def _drain(self):
         while True:
+            if self._held is not None:
+                item, self._held = self._held, None
+            else:
+                try:
+                    item = self.q.get_nowait()
+                except queue.Empty:
+                    return
+            kind, item_id, payload, urgent = item
             try:
-                kind, item_id, payload, urgent = self.q.get_nowait()
-            except queue.Empty:
-                return
-            self.outbox.put(kind, item_id, payload, urgent)
+                self.outbox.put(kind, item_id, payload, urgent)
+            except ValueError as e:                             # sai chủ sở hữu: lỗi vĩnh viễn, không thử lại
+                print(f"[sender] bỏ {kind} {item_id}:", e)
+                continue
+            except Exception:
+                self._held = item                               # ghi lỗi: giữ lại, vòng sau ghi trước mục mới
+                raise
             if self.check_schema:
                 errs = validate("event" if kind == "event" else "metrics", payload)
                 if errs:
@@ -311,8 +352,9 @@ class Sender(threading.Thread):
         with self._diagnostic_lock:
             failure = self.last_failure_code
             state = ('NO_SERVER' if not self.base_url else failure if failure in ('AUTH_REQUIRED','SOURCE_MISMATCH')
-                     else 'RETRYING' if failure else 'OK' if self.last_ok is not None else 'NOT_SENT')
-            return dict(version=1, deliveryState=state, queued=self.q.qsize(), pending=stats['pending'],
+                     else 'RETRYING' if failure or self.storage_error else 'OK' if self.last_ok is not None else 'NOT_SENT')
+            queued = self.q.qsize() + (self._held is not None)
+            return dict(version=1, deliveryState=state, queued=queued, pending=stats['pending'],
                 retrying=stats.get('retrying',0), dead=stats['dead'], acceptedSinceStart=self.sent_total,
                 lastAttemptAt=timestamp(self.last_attempt), lastAcceptedAt=timestamp(self.last_ok),
                 oldestPendingAt=timestamp(stats.get('oldestPendingAt')), lastAttemptMs=self.last_attempt_ms,

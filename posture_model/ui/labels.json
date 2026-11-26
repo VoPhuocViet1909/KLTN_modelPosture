@@ -66,6 +66,7 @@
   "ui": {
     "sync_ok": "Đang đồng bộ",
     "sync_lost": "Mất kết nối, {n} bản chờ gửi",
+    "sync_storage_error": "Không ghi được hàng đợi trên máy, {n} bản chờ gửi",
     "sync_local": "Chưa đăng nhập, không gửi dữ liệu",
     "repeat_suffix": " (nhắc lần {level})"
   },

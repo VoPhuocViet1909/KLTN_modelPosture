@@ -501,6 +501,7 @@ class PostureEngine:
                               online=self.sender.online if self.sender.base_url else None,
                               hasServer=bool(self.sender.base_url), text=self.sender.status_text(),
                               lastError=self.sender.last_error,
+                              storageError=getattr(self.sender, 'storage_error', None),
                               authLost=bool(self.auth is not None and self.auth.lost),
                               lostKind=self.auth.lost_kind if self.auth is not None else None)
         self.sync_info['configStatus'] = self.config_sync.status() if self.config_sync and hasattr(self.config_sync, 'status') else None

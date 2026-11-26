@@ -166,7 +166,9 @@ class ConnectionDot(QWidget):
     def set_info(self, info, logged_in=True):
         """info = dict từ engine.on_sync hoặc None."""
         ui = labels()["ui"]
-        if info is None or not info.get("hasServer"):
+        if info is not None and info.get("storageError"):
+            kind, text = "lost", ui["sync_storage_error"].format(n=info.get("pending", 0))
+        elif info is None or not info.get("hasServer"):
             kind, text = "local", ui["sync_local"]
         elif info.get("online") is False:
             kind, text = "lost", ui["sync_lost"].format(n=info.get("pending", 0))
