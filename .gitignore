@@ -53,3 +53,8 @@ training/a2_eval/data/
 training/a2_eval/**/*.npz
 training/a2_eval/**/*.joblib
 training/a2_eval/**/*.mp4
+
+# C1–C4 dự báo: kết quả chạy, dữ liệu (chỉ commit code, test, protocol, README)
+training/forecast/out/
+training/forecast/data/
+training/forecast/__pycache__/
