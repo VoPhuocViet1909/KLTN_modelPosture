@@ -44,3 +44,12 @@ record_progress_*.json
 *.rec.mp4
 _cu/
 posture_model/recording/cam_profile.json
+
+# A2/A3 đánh giá: model RF, NPZ, cache landmark, video, CSV nhãn, kết quả chạy (chỉ commit code, test, README)
+training/a2_eval/work/
+training/a2_eval/models/
+training/a2_eval/out/
+training/a2_eval/data/
+training/a2_eval/**/*.npz
+training/a2_eval/**/*.joblib
+training/a2_eval/**/*.mp4
