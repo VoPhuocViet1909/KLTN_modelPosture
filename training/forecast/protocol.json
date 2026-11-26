@@ -1,0 +1,51 @@
+{
+  "_doc": "Khóa trước khi đánh giá (kế hoạch mục 5.C). Mọi script đọc file này; không dò tham số trên tập test. Đổi file này sau khi đã xem kết quả = chạy lại từ đầu và ghi rõ trong PR.",
+  "version": 1,
+  "window_sec": 60,
+  "classes": ["good", "forward_head", "lean_forward", "slouch", "lean_backward", "neck_extension"],
+  "label": {
+    "_doc": "BAD = tổng 5 lớp xấu; phân loại được = tổng 6 lớp. y=1 nếu BAD(t+1..t+5) >= bad_fraction * phân loại được(t+1..t+5).",
+    "horizon_min": 5,
+    "bad_fraction": 0.5,
+    "anchor_min_good_fraction": 0.5,
+    "anchor_min_classified_sec": 30,
+    "max_missing_fraction": 0.5
+  },
+  "features": {
+    "_doc": "Chỉ dùng phút <= t. Phút 'quan sát được' = phân loại được >= min_observed_classified_sec.",
+    "history_min": 10,
+    "min_observed_classified_sec": 30,
+    "away_reset_sec": 30,
+    "since_alert_cap_min": 60,
+    "slope_min_points": 3
+  },
+  "baseline_a": {
+    "_doc": "(a) giống phút hiện tại: tần suất dương của train theo nhóm tỷ lệ BAD của phút t.",
+    "bad_rate_bin_edges": [0.0, 0.1, 0.2, 0.3, 0.4, 1.0001]
+  },
+  "baseline_b": {
+    "_doc": "(b) Markov bậc 1 theo trạng thái phút (nhóm tỷ lệ BAD + X = không phân loại đủ), xác suất >= 50% BAD trong 5 phút tính bằng liệt kê mọi đường đi.",
+    "state_edges": [0.1, 0.25, 0.5, 0.75],
+    "laplace": 1.0
+  },
+  "logistic": {"penalty": "l2", "C": 1.0, "max_iter": 2000},
+  "gru": {
+    "hidden": 16, "layers": 1, "lr": 0.003, "weight_decay": 0.0001, "batch": 128,
+    "max_epochs": 80, "patience": 8, "threads": 1
+  },
+  "validation": {
+    "_doc": "Trong mỗi fold train: tách theo NGƯỜI một phần làm validation (dùng cho early stopping của GRU và chọn ngưỡng nhắc của cả 4 mô hình). Cả 4 mô hình fit trên phần train còn lại.",
+    "person_fraction": 0.25,
+    "min_val_persons": 1
+  },
+  "reminder": {
+    "_doc": "Nhắc khi p >= ngưỡng, rồi im ít nhất silence_min phút. Ngưỡng = thấp nhất mà nhắc nhầm/giờ trên validation <= target. Giờ = tổng presence_sec / 3600. Nhắc nhầm = nhắc tại mốc y=0. Phút nhắc trước = từ mốc nhắc tới phút đầu tiên (trong t+1..t+5) có BAD >= lead_bad_fraction * phân loại được.",
+    "target_false_per_hour": 2.0,
+    "silence_min": 10,
+    "lead_bad_fraction": 0.5
+  },
+  "bootstrap": {"n": 2000, "ci": 0.95, "seed": 0, "unit": "person"},
+  "min_persons": 4,
+  "seed": 0,
+  "data_contract": "kế hoạch hoàn thiện KLTN mục 3.1–3.2 (minutes.jsonl, sessions.jsonl, snake_case)"
+}
