@@ -20,6 +20,7 @@ from pathlib import Path
 
 import numpy as np
 
+import boot as BT
 import data as D
 import dataset as DS
 import models as MD
@@ -97,25 +98,17 @@ def pooled(aggs):
 def bootstrap(per_person, boot, models):
     """per_person: {model: {person: agg}}. Lấy mẫu NGƯỜI có hoàn lại. -> CI từng chỉ số và chênh lệch so với (a)."""
     persons = sorted(next(iter(per_person.values())))
-    rng = np.random.default_rng(boot["seed"])
     vals = {m: {k: [] for k in METRIC_KEYS} for m in models}
     diffs = {m: {k: [] for k in METRIC_KEYS} for m in models if m != "a"}
-    for _ in range(boot["n"]):
-        pick = [persons[i] for i in rng.integers(0, len(persons), len(persons))]
+    for pick in BT.resample_people(persons, boot):
         res = {m: pooled([per_person[m][q] for q in pick]) for m in models}
         for m in models:
             for k in METRIC_KEYS:
                 vals[m][k].append(res[m][k])
                 if m != "a":
                     diffs[m][k].append(res[m][k] - res["a"][k])
-    lo, hi = (1 - boot["ci"]) / 2 * 100, (1 + boot["ci"]) / 2 * 100
-
-    def ci(v):
-        v = np.array(v, float)
-        v = v[np.isfinite(v)]
-        return None if len(v) < max(10, boot["n"] // 10) else [float(np.percentile(v, lo)), float(np.percentile(v, hi))]
-    return ({m: {k: ci(v) for k, v in d.items()} for m, d in vals.items()},
-            {m: {k: ci(v) for k, v in d.items()} for m, d in diffs.items()})
+    return ({m: {k: BT.percentile_ci(v, boot) for k, v in d.items()} for m, d in vals.items()},
+            {m: {k: BT.percentile_ci(v, boot) for k, v in d.items()} for m, d in diffs.items()})
 
 
 # ---------------------------------------------------------------- chạy

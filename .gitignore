@@ -58,3 +58,7 @@ training/a2_eval/**/*.mp4
 training/forecast/out/
 training/forecast/data/
 training/forecast/__pycache__/
+
+# D1–D3 xuống sức: kết quả chạy (chỉ commit code, test, protocol, README)
+training/fatigue/out/
+training/fatigue/__pycache__/
