@@ -1,6 +1,7 @@
 {
   "_doc": "Khóa trước khi đánh giá (kế hoạch mục 5.C). Mọi script đọc file này; không dò tham số trên tập test. Đổi file này sau khi đã xem kết quả = chạy lại từ đầu và ghi rõ trong PR.",
-  "version": 1,
+  "version": 2,
+  "changelog": "v2 (26/11/2026): sửa trước khi có dữ liệu thật, chỉ dựa trên kiểm code với dữ liệu giả. (1) Ngưỡng nhắc của (a),(b),(c),(e) chọn bằng LOSO lồng trong train fold (dự đoán ngoài lượt cho từng người train) rồi fit lại trên toàn bộ train fold; GRU (d) giữ tách validation theo người cho early stopping và chọn ngưỡng. (2) Thêm mốc (e): logistic L2 chỉ trên thời gian ngồi liên tục.",
   "window_sec": 60,
   "classes": ["good", "forward_head", "lean_forward", "slouch", "lean_backward", "neck_extension"],
   "label": {
@@ -34,9 +35,19 @@
     "max_epochs": 80, "patience": 8, "threads": 1
   },
   "validation": {
-    "_doc": "Trong mỗi fold train: tách theo NGƯỜI một phần làm validation (dùng cho early stopping của GRU và chọn ngưỡng nhắc của cả 4 mô hình). Cả 4 mô hình fit trên phần train còn lại.",
+    "_doc": "Chỉ cho GRU (d): trong mỗi fold train, tách theo NGƯỜI một phần làm validation cho early stopping VÀ chọn ngưỡng nhắc; GRU fit trên phần train còn lại, không fit lại.",
     "person_fraction": 0.25,
     "min_val_persons": 1
+  },
+  "threshold_selection": {
+    "_doc": "(a),(b),(c),(e): LOSO lồng trong train fold -> dự đoán ngoài lượt cho từng người train -> chọn ngưỡng thấp nhất đạt mục tiêu nhắc nhầm/giờ trên các dự đoán đó, rồi fit lại mô hình trên toàn bộ train fold. (d): validation theo người (mục validation).",
+    "nested_loso": ["a", "b", "c", "e"],
+    "validation_split": ["d"]
+  },
+  "baseline_e": {
+    "_doc": "(e) logistic L2 chỉ trên đặc trưng thời gian ngồi liên tục (sitting_min), để tách phần đóng góp của riêng đặc trưng này.",
+    "features": ["sitting_min"],
+    "C": 1.0
   },
   "reminder": {
     "_doc": "Nhắc khi p >= ngưỡng, rồi im ít nhất silence_min phút. Ngưỡng = thấp nhất mà nhắc nhầm/giờ trên validation <= target. Giờ = tổng presence_sec / 3600. Nhắc nhầm = nhắc tại mốc y=0. Phút nhắc trước = từ mốc nhắc tới phút đầu tiên (trong t+1..t+5) có BAD >= lead_bad_fraction * phân loại được.",
