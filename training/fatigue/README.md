@@ -158,7 +158,7 @@ Chạy 26/11/2026 trên commit `07d5fbdd` (protocol v2 chưa sửa, code sạch)
 - **Bộ 5 (backend)**: chỉ kiểm đọc file; 11/32 phiên bị loại đúng quy tắc (7 không có mức đầu buổi vì khối thiếu, 4 phiên ngắn < 60 phút). Onset đều ở phút 50 theo cách sinh nên m0 gần như hoàn hảo; số liệu không có ý nghĩa dự báo. GEE có trọng số của trục phụ không tính được CI (dữ liệu quá đều).
 - Thời gian chạy mỗi bộ 4–8 giây (kể cả bootstrap 2000 lần).
 
-## 6. Quyết định (Việt đã xác nhận 8 quyết định đầu ngày 26/11/2026; 9–10 thêm ở protocol v2, cần xác nhận)
+## 6. Quyết định (Việt đã xác nhận cả 10 quyết định ngày 26/11/2026; 9–10 thêm ở protocol v2)
 
 Kế hoạch/prompt không nêu rõ; đã chọn phương án đơn giản và khóa trong `protocol.json`:
 1. ✅ **Δ = 0,15, ≥ 2 khối liên tiếp, 2 khối đầu làm mức đầu buổi** (theo đề xuất). Khối thiếu làm đứt chuỗi onset; đúng bằng baseline + Δ vẫn tính.
@@ -169,8 +169,8 @@ Kế hoạch/prompt không nêu rõ; đã chọn phương án đơn giản và k
 6. ✅ **MixedLM không trọng số** (thư viện không hỗ trợ), GEE có trọng số làm độ nhạy; chỉ khối không thiếu vào mô hình.
 7. ✅ **C-index của m0/m1 = 0,5 theo cấu trúc** (không dùng thông tin phiên); C-index chỉ để đánh giá m2.
 8. ✅ **Nhắc/giờ** = số phiên được nhắc / tổng số giờ phiên (tối đa một nhắc mỗi phiên); không tính nhắc lặp.
-9. **m3 dùng đúng 3 đặc trưng** (mức BAD 2 khối đầu = `bad_b0`, `bad_b1`; độ dốc BAD phút 0–29 = `bad_slope`, hồi quy theo 3 khối đầu) + chỉ số khối, theo yêu cầu; không dò tập đặc trưng khác.
-10. **Đối chứng xáo phút** dùng một hoán vị ngẫu nhiên các phút của từng phiên (seed cố định theo `protocol.controls.shuffle_minutes_seed` và chỉ số phiên); giờ thật (`window_start`) giữ nguyên.
+9. ✅ **m3 dùng đúng 3 đặc trưng** (mức BAD 2 khối đầu = `bad_b0`, `bad_b1`; độ dốc BAD phút 0–29 = `bad_slope`, hồi quy theo 3 khối đầu) + chỉ số khối, theo yêu cầu; không dò tập đặc trưng khác.
+10. ✅ **Đối chứng xáo phút** dùng một hoán vị ngẫu nhiên các phút của từng phiên (seed cố định theo `protocol.controls.shuffle_minutes_seed` và chỉ số phiên); giờ thật (`window_start`) giữ nguyên.
 
 ## 7. Giới hạn
 
