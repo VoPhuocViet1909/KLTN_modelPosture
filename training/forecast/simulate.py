@@ -22,7 +22,7 @@ import data as D
 TZ = timezone(timedelta(hours=7))
 
 
-def person_params(rng, planted=False):
+def person_params(rng, planted=False, planted_fatigue=False):
     """planted=True CHỈ cho bộ đối chứng công suất: BAD bắt đầu đúng khi ngồi liên tục đạt ngưỡng riêng và kéo dài 6 phút.
     Bộ chính (planted=False) giữ nguyên thứ tự rút số ngẫu nhiên."""
     p = dict(h0=rng.uniform(0.01, 0.04), h1=rng.uniform(0.03, 0.09), rec=rng.uniform(0.15, 0.35),
@@ -30,6 +30,8 @@ def person_params(rng, planted=False):
                 loss=rng.uniform(0.004, 0.015), cls_prior=rng.dirichlet(np.ones(5) * 1.5),
                 alert_p=rng.uniform(0.5, 0.9))
     p["planted_T"] = int(rng.integers(18, 34)) if planted else None
+    # chỉ rút thêm số ngẫu nhiên khi bật cờ -> đầu ra mặc định không đổi
+    p["fatigue_m"] = float(rng.uniform(0.3, 1.2)) if planted_fatigue else None
     return p
 
 
@@ -45,7 +47,7 @@ def _classes(rng, present, bad_share, prior, f_classified):
     return vals
 
 
-def simulate_session(rng, pr, start, duration_min):
+def simulate_session(rng, pr, start, duration_min, fatigue_v=None):
     """-> list dict phút (chưa có participant/session_id)."""
     end = start + timedelta(minutes=duration_min)
     floor = start.replace(second=0, microsecond=0)
@@ -96,7 +98,10 @@ def simulate_session(rng, pr, start, duration_min):
         if present >= 1.0:
             haz = min(0.35, (pr["h0"] + pr["h1"] * sit / 30.0) * (1 + 0.3 * max(0.0, (hour - 13) / 5)))
             rec = min(0.9, pr["rec"] + (0.15 if bad_run >= 2 else 0.0))
-            if pr["planted_T"] is not None:                      # đối chứng công suất: khởi phát xác định
+            if fatigue_v is not None:                            # đối chứng công suất cho D (xuống sức): onset rõ, đoán được từ độ dốc đầu buổi
+                fat_share = float(np.clip(min(0.85, 0.05 + 0.006 * fatigue_v * m) + rng.normal(0, 0.03), 0.0, 0.95))
+                mode = 1 if fat_share > 0.5 else 0
+            elif pr["planted_T"] is not None:                    # đối chứng công suất: khởi phát xác định
                 if mode == 0 and sit == pr["planted_T"]:
                     mode, planted_left = 1, 6
                 elif mode == 1:
@@ -116,7 +121,9 @@ def simulate_session(rng, pr, start, duration_min):
                 alerts, last_alert_run = 1, bad_run
         vals = [None] * 6
         if present >= 1.0:
-            if mode == 1:
+            if fatigue_v is not None:
+                share = fat_share
+            elif mode == 1:
                 share = rng.uniform(0.3, 0.9) if prev_mode == 0 else float(rng.beta(8, 2))
             else:
                 share = rng.uniform(0.1, 0.6) if prev_mode == 1 else float(rng.beta(1, 12))
@@ -145,7 +152,7 @@ def _fix_row(row):
     return row
 
 
-def write_dataset(directory, persons=10, sessions=4, seed=20261126, planted=False):
+def write_dataset(directory, persons=10, sessions=4, seed=20261126, planted=False, planted_fatigue=False):
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
     root = np.random.SeedSequence(seed)
@@ -154,14 +161,15 @@ def write_dataset(directory, persons=10, sessions=4, seed=20261126, planted=Fals
     srows, mrows = [], []
     for p in range(persons):
         rng = np.random.default_rng(seeds[p])
-        pr = person_params(rng, planted)
+        pr = person_params(rng, planted, planted_fatigue)
         code = f"SIM{p + 1:02d}"
         for k in range(sessions):
             dur = int(rng.integers(90, 151))
             start = origin + timedelta(days=k + 7 * (p % 3), hours=int(rng.integers(0, 6)), minutes=int(rng.integers(0, 60)),
                                        seconds=int(rng.integers(5, 55)))
             sid = f"{code}-S{k + 1}"
-            rows, n = simulate_session(rng, pr, start, dur)
+            v = pr["fatigue_m"] * float(np.exp(rng.normal(0, 0.15))) if planted_fatigue else None
+            rows, n = simulate_session(rng, pr, start, dur, v)
             end = start + timedelta(minutes=dur)
             srows.append(dict(participant=code, session_id=sid, started_at=start.isoformat(), ended_at=end.isoformat(),
                               duration_min=dur, camera_setup="side90+laptop", study_opt_in=True, ended_early=False,
@@ -178,7 +186,8 @@ def write_dataset(directory, persons=10, sessions=4, seed=20261126, planted=Fals
                                    *D.CLASS_FIELDS]}
             f.write(json.dumps(r, ensure_ascii=False) + "\n")
     (directory / "simulate_meta.json").write_text(
-        json.dumps(dict(persons=persons, sessions=sessions, seed=seed, planted=planted), indent=2), encoding="utf-8")
+        json.dumps(dict(persons=persons, sessions=sessions, seed=seed, planted=planted, **({"planted_fatigue": True} if planted_fatigue else {})),
+                   indent=2), encoding="utf-8")
     D.load(directory)          # kiểm theo quy tắc 3.1; ném DataError nếu sai
     return directory
 
@@ -191,8 +200,10 @@ def main():
     ap.add_argument("--seed", type=int, default=20261126)
     ap.add_argument("--planted", action="store_true",
                     help="bộ đối chứng công suất: BAD khởi phát xác định theo thời gian ngồi (KHÔNG thực tế)")
+    ap.add_argument("--planted-fatigue", action="store_true",
+                    help="bộ đối chứng công suất cho D (xuống sức): BAD tăng dần theo phút với độ dốc riêng từng phiên rồi vọt lên ở onset (KHÔNG thực tế)")
     a = ap.parse_args()
-    d = write_dataset(a.out, a.persons, a.sessions, a.seed, a.planted)
+    d = write_dataset(a.out, a.persons, a.sessions, a.seed, a.planted, a.planted_fatigue)
     print("đã ghi", d, "|", D.summary(D.load(d)))
 
 
