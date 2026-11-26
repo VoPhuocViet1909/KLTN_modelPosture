@@ -287,7 +287,7 @@ def test_shuffle_blocks_keeps_block_contents_and_window_times():
 
 # ---------------------------------------------------------------- protocol, tái dùng forecast, LOSO, đầu-cuối
 def test_protocol_locked_values_and_forecast_reuse():
-    assert P["version"] == 1 and P["block"]["minutes"] == 10 and P["onset"]["delta"] == 0.15 and P["reference_reminder_min"] == 50
+    assert P["version"] == 2 and P["block"]["minutes"] == 10 and P["onset"]["delta"] == 0.15 and P["reference_reminder_min"] == 50
     assert P["eligible"] == {"_doc": P["eligible"]["_doc"], "min_session_min": 60, "min_valid_blocks": 4}
     assert C.FE.minute_table.__module__ == "features" and C.D.load.__module__ == "data"       # import từ forecast, không chép
     s = sess([0.1] * 6, away=[0] * 25 + [31] + [0] * 34)                                       # away 31 s >= away_reset_sec của forecast
@@ -324,9 +324,79 @@ def test_end_to_end_small(tmp_path):
     for f in ("blocks.csv", "curves.json", "sessions.csv", "metrics.json", "metrics.md", "curves.png", "km.png", "run_meta.json"):
         assert (tmp_path / "out" / f).exists()
     head = open(tmp_path / "out" / "sessions.csv", encoding="utf-8").readline().strip().split(",")
-    assert head[:7] == ["participant", "session_id", "onset", "censored", "r_m0", "r_m1", "r_m2"]
+    assert head[:8] == ["participant", "session_id", "onset", "censored", "r_m0", "r_m1", "r_m2", "r_m3"]
     rows = list(csv.DictReader(open(tmp_path / "out" / "sessions.csv", encoding="utf-8")))
     assert all(r["r_m0"] == "50" for r in rows if r["group"] == "compared")
-    assert meta["protocol_override"] == {"bootstrap_n": 20} and meta["protocol_version"] == 1
+    assert meta["protocol_override"] == {"bootstrap_n": 20} and meta["protocol_version"] == 2
     assert {"data_sha256", "protocol_sha256", "forecast_protocol_sha256", "git"} <= set(meta)
     assert res["d1"]["time_axis"]["primary"] is not None
+    md = (tmp_path / "out" / "metrics.md").read_text(encoding="utf-8")
+    assert "m3: hazard gọn" in md and "(không nhắc " in md and "m3 − m0" in md          # MAE đi kèm tỷ lệ không nhắc
+
+
+# ---------------------------------------------------------------- protocol v2: m3 và đối chứng xáo phút
+def test_protocol_v2_m3_and_controls():
+    assert P["version"] == 2 and "sửa trước khi có dữ liệu thật" in P["changelog"]
+    assert P["d3"]["m3"]["features"] == ["bad_b0", "bad_b1", "bad_slope"]
+    assert set(P["controls"]) == {"shuffle_blocks_seed", "shuffle_minutes_seed"} and D3.METHODS == ("m0", "m1", "m2", "m3")
+
+
+def test_m3_uses_only_its_features_and_block_index():
+    names = P["d3"]["m3"]["features"]
+    F = len(P["d3"]["features"])
+    cols = D3.feature_cols(P, names)
+    assert cols == [0, 1, 3]
+    items = [dict(feat=np.arange(F, dtype=float), onset=50, censor_min=70), dict(feat=np.ones(F), onset=None, censor_min=80)]
+    X, y = D3.person_period(items, P, cols)
+    assert X.shape == (8, 4) and X[:3, :-1].tolist() == [[0.0, 1.0, 3.0]] * 3 and X[:3, -1].tolist() == [3, 4, 5]
+    r = np.random.default_rng(0)
+    its = []
+    for i in range(50):
+        k = int(r.integers(3, 9))
+        f = r.normal(size=F)
+        f[3] = (k - 6) / 3.0
+        its.append(dict(feat=f, onset=k * 10, censor_min=k * 10 + 20))
+    hz = D3.Hazard(P, names).fit(its)
+    assert set(hz.coef) == set(names) | {"block_idx"}
+    f0 = its[0]["feat"].copy()
+    f1 = f0.copy()
+    f1[[i for i in range(F) if i not in cols]] = 99.0                              # đổi mọi đặc trưng ngoài tập của m3
+    assert hz.reminder(f0) == hz.reminder(f1)
+    assert D3.Hazard(P).fit(its).cols == list(range(F))                             # m2 vẫn dùng đủ 15
+
+
+def test_shuffle_minutes_keeps_minutes_destroys_order_and_is_deterministic():
+    s = sess([0.1, 0.2, 0.3, 0.4, 0.5, 0.6], extra_minutes=3)
+    s.cls[:, 1] += np.arange(s.n) * 0.1                                              # mỗi phút một giá trị riêng
+    out = BL.shuffle_minutes({("P1", "S1"): s}, P, 0)[("P1", "S1")]
+    assert sorted(out.cls[:, 1].tolist()) == sorted(s.cls[:, 1].tolist()) and out.cls[:, 1].tolist() != s.cls[:, 1].tolist()
+    assert out.window_start == s.window_start
+    assert BL.shuffle_minutes({("P1", "S1"): s}, P, 0)[("P1", "S1")].cls.tolist() == out.cls.tolist()
+    assert BL.shuffle_minutes({("P1", "S1"): s}, P, 1)[("P1", "S1")].cls.tolist() != out.cls.tolist()
+
+
+def test_shuffle_minutes_removes_a_known_trend():
+    sessions = {}
+    r = np.random.default_rng(3)
+    for p in range(6):
+        for k in range(3):
+            rates = [0.1 + 0.05 * b + r.normal(0, 0.01) for b in range(10)]            # tăng 5 điểm % mỗi khối = 30 điểm %/giờ
+            s = sess(rates, who=f"P{p}", sid=f"S{k}")
+            sessions[(s.participant, s.session_id)] = s
+    before = TR.run_trend(BL.analyse_all(sessions, P, Pf), P)[0]["time_axis"]
+    after = TR.run_trend(BL.analyse_all(BL.shuffle_minutes(sessions, P, 0), P, Pf), P)[0]["time_axis"]
+
+    def sl(ax):
+        return (ax["mixedlm"] if ax["primary"] == "mixedlm" else ax["gee_weighted"])
+    assert sl(before)["slope_pp_per_hour"] > 25 and sl(before)["ci95_pp_per_hour"][0] > 0
+    lo, hi = sl(after)["ci95_pp_per_hour"]
+    assert abs(sl(after)["slope_pp_per_hour"]) < 5 and lo < 0 < hi
+
+
+def test_run_with_shuffle_minutes_control(tmp_path):
+    SIM.write_dataset(tmp_path / "d", persons=5, sessions=3, seed=21)
+    res, meta = EV.run(tmp_path / "d", tmp_path / "out", boot_n=20, log=lambda *_: None, shuffle_minutes=True)
+    assert meta["shuffle_minutes"] is True and meta["shuffle_control"] is False and res["shuffle_minutes"] is True
+    assert "PHÚT" in (tmp_path / "out" / "metrics.md").read_text(encoding="utf-8")
+    with pytest.raises(AssertionError):
+        EV.run(tmp_path / "d", tmp_path / "out2", boot_n=20, log=lambda *_: None, shuffle_control=True, shuffle_minutes=True)

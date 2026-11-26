@@ -12,7 +12,7 @@ import common as C
 import blocks as BL
 import survival as SV
 
-METHODS = ("m0", "m1", "m2")
+METHODS = ("m0", "m1", "m2", "m3")
 RATE_KEYS = ("timely_rate", "late_rate", "early_rate", "none_rate", "mae_min", "c_index", "reminders_per_hour")
 
 
@@ -55,27 +55,38 @@ def session_features(s, P, Pf):
 
 
 # ---------------------------------------------------------------- hazard rời rạc (m2)
-def person_period(items, P):
+def feature_cols(P, names=None):
+    """Chỉ số cột đặc trưng theo tên (None = tất cả)."""
+    allf = P["d3"]["features"]
+    return list(range(len(allf))) if names is None else [allf.index(n) for n in names]
+
+
+def person_period(items, P, cols=None):
     """items: list dict(feat, onset, censor_min). -> X (n, F+1: đặc trưng + chỉ số khối), y. Phiên onset: các khối từ khối đầu hazard tới khối onset
     (nhãn 1 ở khối onset); phiên kiểm duyệt: tới khối đủ cuối cùng với nhãn 0."""
     B, first = P["block"]["minutes"], P["d3"]["first_hazard_block"]
+    cols = feature_cols(P) if cols is None else cols
     X, y = [], []
     for it in items:
         last = it["onset"] // B if it["onset"] is not None else it["censor_min"] // B - 1
         for k in range(first, last + 1):
-            X.append([*it["feat"], k])
+            X.append([*np.asarray(it["feat"])[cols], k])
             y.append(int(it["onset"] is not None and k == last))
-    return np.array(X, float).reshape(-1, len(P["d3"]["features"]) + 1), np.array(y, int)
+    return np.array(X, float).reshape(-1, len(cols) + 1), np.array(y, int)
 
 
 class Hazard:
-    def __init__(self, P):
+    """Hazard rời rạc. `names` = tập đặc trưng dùng (None = tất cả 15, là m2; m3 truyền tập gọn từ protocol)."""
+
+    def __init__(self, P, names=None):
         self.P = P
+        self.names = P["d3"]["features"] if names is None else list(names)
+        self.cols = feature_cols(P, self.names)
 
     def fit(self, items):
         from sklearn.linear_model import LogisticRegression
         from sklearn.preprocessing import StandardScaler
-        X, y = person_period(items, self.P)
+        X, y = person_period(items, self.P, self.cols)
         self.n_rows, self.n_events = int(len(y)), int(y.sum())
         self.const = None
         if self.n_events == 0 or self.n_events == len(y):
@@ -84,7 +95,7 @@ class Hazard:
         h = self.P["d3"]["hazard"]
         self.sc = StandardScaler().fit(X)
         self.m = LogisticRegression(C=h["C"], max_iter=h["max_iter"], random_state=self.P["seed"]).fit(self.sc.transform(X), y)
-        self.coef = dict(zip([*self.P["d3"]["features"], "block_idx"], self.m.coef_[0].tolist()))
+        self.coef = dict(zip([*self.names, "block_idx"], self.m.coef_[0].tolist()))
         return self
 
     def hazards(self, feat):
@@ -92,7 +103,7 @@ class Hazard:
         ks = np.arange(d3["first_hazard_block"], d3["max_block_idx"] + 1)
         if self.const is not None:
             return ks, np.full(len(ks), self.const)
-        X = np.column_stack([np.tile(feat, (len(ks), 1)), ks])
+        X = np.column_stack([np.tile(np.asarray(feat)[self.cols], (len(ks), 1)), ks])
         return ks, self.m.predict_proba(self.sc.transform(X))[:, 1]
 
     def reminder(self, feat):
@@ -171,15 +182,18 @@ def run_d3(sessions, analyses, P, Pf, log=print):
         test_keys = [k for k, it in items.items() if it["participant"] == test_p]
         assert all(it["participant"] != test_p for it in train)
         haz = Hazard(P).fit(train)
+        haz3 = Hazard(P, P["d3"]["m3"]["features"]).fit(train)
         med = m1_reminder(train)
         folds.append(dict(test=test_p, n_train_sessions=len(train), n_train_events=sum(it["onset"] is not None for it in train),
                           m1_median_min=med, hazard_rows=haz.n_rows, hazard_events=haz.n_events,
-                          hazard_constant=haz.const, hazard_coef=getattr(haz, "coef", None)))
+                          hazard_constant=haz.const, hazard_coef=getattr(haz, "coef", None),
+                          m3_hazard_constant=haz3.const, m3_hazard_coef=getattr(haz3, "coef", None)))
         for k in test_keys:
             it = items[k]
             r2, risk2 = haz.reminder(it["feat"])
+            r3, risk3 = haz3.reminder(it["feat"])
             rec = dict(participant=it["participant"], session_id=it["session_id"], onset=it["onset"], censor_min=it["censor_min"], hours=it["hours"])
-            per = {"m0": (float(P["reference_reminder_min"]), 0.0), "m1": (None if med is None else float(med), 0.0), "m2": (r2, risk2)}
+            per = {"m0": (float(P["reference_reminder_min"]), 0.0), "m1": (None if med is None else float(med), 0.0), "m2": (r2, risk2), "m3": (r3, risk3)}
             for m, (r, risk) in per.items():
                 rows[m][test_p].append(dict(rec, r=r, risk=risk))
             per_session[k] = {m: per[m][0] for m in METHODS}
