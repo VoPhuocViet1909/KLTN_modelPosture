@@ -43,6 +43,14 @@ def truncate(s, m):
         model_version=list(s.model_version[:m]))
 
 
+def minute_permuted(s, perm):
+    """Session với thứ tự các PHÚT đổi theo `perm`; window_start (giờ thật) giữ nguyên."""
+    perm = np.asarray(perm, int)
+    return dataclasses.replace(
+        s, covered=s.covered[perm], presence=s.presence[perm], away=s.away[perm], unknown=s.unknown[perm], cls=s.cls[perm],
+        alerts=s.alerts[perm], model_version=[s.model_version[i] for i in perm])
+
+
 def block_permuted(s, order, B):
     """Session với thứ tự các khối (mỗi khối B phút) đổi theo `order`; phút dư cuối giữ nguyên chỗ; window_start (giờ thật) giữ nguyên."""
     nb = len(order)

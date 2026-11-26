@@ -74,6 +74,15 @@ def analyse_all(sessions, P, Pf):
     return {key: analyse_session(sessions[key], P, Pf) for key in sorted(sessions)}
 
 
+def shuffle_minutes(sessions, P, seed):
+    """Đối chứng thứ 5: xáo thứ tự PHÚT trong từng phiên (mọi cấu trúc thời gian, kể cả bên trong khối, bị phá)."""
+    out = {}
+    for i, key in enumerate(sorted(sessions)):
+        s = sessions[key]
+        out[key] = C.minute_permuted(s, np.random.default_rng([seed, i, 1]).permutation(s.n))
+    return out
+
+
 def shuffle_blocks(sessions, P, seed):
     """Đối chứng: xáo thứ tự các khối trong từng phiên (xu hướng theo thời gian bị phá, nội dung khối giữ nguyên)."""
     B = P["block"]["minutes"]
